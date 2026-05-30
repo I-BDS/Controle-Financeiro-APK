@@ -37,6 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     _limiteRF = prefs.getDouble(_limiteRFKey) ?? 30639.90;
     _limiteRFController.text = _limiteRF.toStringAsFixed(2);
+    if (mounted) setState(() {});
   }
 
   Future<void> _salvar() async {

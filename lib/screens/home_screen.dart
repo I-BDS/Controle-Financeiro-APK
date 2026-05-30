@@ -537,14 +537,19 @@ class HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          SizedBox(
-            height: (transacoes.length * 54.0).clamp(0, 324),
-            child: SingleChildScrollView(
-              child: Column(
-                children: transacoes.map((t) => _buildTransacaoTile(t)).toList(),
+          if (transacoes.length <= 5)
+            Column(
+              children: transacoes.map((t) => _buildTransacaoTile(t)).toList(),
+            )
+          else
+            SizedBox(
+              height: 324,
+              child: SingleChildScrollView(
+                child: Column(
+                  children: transacoes.map((t) => _buildTransacaoTile(t)).toList(),
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
