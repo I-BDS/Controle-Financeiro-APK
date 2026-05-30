@@ -1,6 +1,7 @@
 # Gestão Financeira
 
 Aplicativo mobile para controle de finanças pessoais desenvolvido em Flutter.
+Download: https://github.com/I-BDS/Controle-Financeiro-APK/releases/tag/v1.0.0
 
 ## Funcionalidades
 
