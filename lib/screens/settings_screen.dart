@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/supabase_service.dart';
 import '../services/storage_service.dart';
 import '../services/sql_migration.dart';
+import '../helpers/format_util.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onToggleTheme;
@@ -17,6 +19,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _expandido = false;
   final _urlController = TextEditingController();
   final _keyController = TextEditingController();
+  final _limiteRFController = TextEditingController();
+  double _limiteRF = 30639.90;
+  static const _limiteRFKey = 'limite_receita_federal';
+
 
   @override
   void initState() {
@@ -28,6 +34,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final creds = await SupabaseService.carregarCredenciais();
     _urlController.text = creds['url']!;
     _keyController.text = creds['anonKey']!;
+    final prefs = await SharedPreferences.getInstance();
+    _limiteRF = prefs.getDouble(_limiteRFKey) ?? 30639.90;
+    _limiteRFController.text = _limiteRF.toStringAsFixed(2);
   }
 
   Future<void> _salvar() async {
@@ -53,28 +62,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
-    final storage = StorageService();
-    final ano = DateTime.now().year;
-    final transacoesLocais = await storage.carregarTransacoes();
-    final recebiveisLocais = await storage.carregarRecebiveis();
-    final gruposLocais = await storage.carregarGrupos();
-
-    final erro = await SupabaseService.syncAno(
-      ano: ano,
-      transacoesLocais: transacoesLocais,
-      gruposLocais: gruposLocais,
-      recebiveisLocais: recebiveisLocais,
-      salvarTransacoes: (t) => storage.salvarTransacoes(t),
-      salvarGrupos: (g) => storage.salvarGrupos(g),
-      salvarRecebiveis: (r) => storage.salvarRecebiveis(r),
-    );
+    await StorageService.instance.init();
 
     if (mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(erro ?? 'Credenciais salvas! Dados sincronizados com a nuvem.'),
-          backgroundColor: erro == null ? Colors.green : Colors.red,
+        const SnackBar(
+          content: Text('Credenciais salvas! Dados carregados.'),
+          backgroundColor: Colors.green,
         ),
       );
     }
@@ -114,10 +109,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _salvarLimiteRF() async {
+    final valor = double.tryParse(_limiteRFController.text.replaceAll(',', '.'));
+    if (valor == null || valor <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Valor inválido'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_limiteRFKey, valor);
+    setState(() => _limiteRF = valor);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Limite salvo!'), backgroundColor: Colors.green),
+      );
+    }
+  }
+
+  Widget _buildLimiteRF() {
+    return ExpansionTile(
+      initiallyExpanded: false,
+      leading: Icon(Icons.account_balance, color: Colors.amber, size: 20),
+      title: const Text('Limite Receita Federal', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+      subtitle: Text(
+        'Atual: R\$ ${formatBRL(_limiteRF)}',
+        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+      ),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      collapsedShape: const Border(),
+      shape: const Border(),
+      children: [
+        Text(
+          'Valor máximo de rendimentos tributáveis no ano antes de precisar declarar Imposto de Renda. Apenas lançamentos digitais contam para este limite.',
+          style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _limiteRFController,
+                decoration: const InputDecoration(
+                  labelText: 'Limite anual (R\$)',
+                  border: OutlineInputBorder(),
+                  prefixText: 'R\$ ',
+                  isDense: true,
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: _salvarLimiteRF,
+              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16)),
+              child: const Text('Salvar'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   void dispose() {
     _urlController.dispose();
     _keyController.dispose();
+    _limiteRFController.dispose();
     super.dispose();
   }
 
@@ -218,6 +276,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildLimiteRF(),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),

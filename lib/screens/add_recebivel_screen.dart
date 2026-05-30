@@ -23,9 +23,10 @@ class _AddRecebivelScreenState extends State<AddRecebivelScreen> {
   String? _grupoId;
   bool _recebido = false;
   bool _recorrente = false;
+  bool _isDigital = true;
   late int _mesFim;
   late int _anoFim;
-  final _storage = StorageService();
+  final _storage = StorageService.instance;
   List<Grupo> _grupos = [];
 
   static const _meses = [
@@ -42,6 +43,7 @@ class _AddRecebivelScreenState extends State<AddRecebivelScreen> {
     _grupoId = widget.recebivel?.grupoId;
     _recebido = widget.recebivel?.recebido ?? false;
     _recorrente = widget.recebivel?.recorrente ?? false;
+    _isDigital = widget.recebivel?.isDigital ?? true;
     _mesFim = widget.recebivel?.mesFim ?? _mes;
     _anoFim = widget.recebivel?.anoFim ?? _ano;
     if (widget.recebivel != null) {
@@ -51,9 +53,8 @@ class _AddRecebivelScreenState extends State<AddRecebivelScreen> {
     _carregarGrupos();
   }
 
-  Future<void> _carregarGrupos() async {
-    final g = await _storage.carregarGrupos();
-    setState(() => _grupos = g.where((gr) => gr.isRecebivel).toList());
+  void _carregarGrupos() {
+    _grupos = _storage.grupos.where((gr) => gr.isRecebivel).toList();
   }
 
   @override
@@ -78,12 +79,23 @@ class _AddRecebivelScreenState extends State<AddRecebivelScreen> {
       recorrente: _recorrente,
       mesFim: _recorrente ? _mesFim : null,
       anoFim: _recorrente ? _anoFim : null,
+      isDigital: _isDigital,
     );
 
+    String? erro;
     if (widget.recebivel != null) {
-      await _storage.atualizarRecebivel(recebivel);
+      erro = await _storage.atualizarRecebivel(recebivel);
     } else {
-      await _storage.adicionarRecebivel(recebivel);
+      erro = await _storage.adicionarRecebivel(recebivel);
+    }
+    if (erro != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(erro),
+          backgroundColor: Colors.red,
+        ));
+      }
+      return;
     }
     if (mounted) Navigator.pop(context, true);
   }
@@ -257,6 +269,15 @@ class _AddRecebivelScreenState extends State<AddRecebivelScreen> {
                 onChanged: (v) => setState(() => _grupoId = v),
               ),
             ],
+            const SizedBox(height: 16),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: true, label: Text('Digital'), icon: Icon(Icons.phone_android)),
+                ButtonSegment(value: false, label: Text('Dinheiro'), icon: Icon(Icons.receipt)),
+              ],
+              selected: {_isDigital},
+              onSelectionChanged: (v) => setState(() => _isDigital = v.first),
+            ),
             const SizedBox(height: 24),
             ElevatedButton(
               style: ElevatedButton.styleFrom(

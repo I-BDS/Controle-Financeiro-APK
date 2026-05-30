@@ -6,6 +6,7 @@ import '../models/grupo.dart';
 import '../services/storage_service.dart';
 import 'add_recebivel_screen.dart';
 import 'grupos_screen.dart';
+import '../helpers/format_util.dart';
 
 class RecebiveisScreen extends StatefulWidget {
   final VoidCallback? onTransacaoChanged;
@@ -17,9 +18,7 @@ class RecebiveisScreen extends StatefulWidget {
 }
 
 class _RecebiveisScreenState extends State<RecebiveisScreen> {
-  final _storage = StorageService();
-  List<Recebivel> _recebiveis = [];
-  List<Grupo> _grupos = [];
+  final _storage = StorageService.instance;
 
   int _mesInicio = DateTime.now().month;
   int _anoInicio = DateTime.now().year;
@@ -37,18 +36,22 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
   @override
   void initState() {
     super.initState();
+    _storage.addListener(_onDataChanged);
     _carregar();
   }
 
+  @override
+  void dispose() {
+    _storage.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _carregar() async {
-    final r = await _storage.carregarRecebiveis();
-    final g = await _storage.carregarGrupos();
-    if (mounted) {
-      setState(() {
-        _recebiveis = r;
-        _grupos = g;
-      });
-    }
+    setState(() {});
   }
 
   int _toMonthCount(int mes, int ano) => ano * 12 + mes;
@@ -64,7 +67,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
   }
 
   List<Recebivel> get _recebiveisFiltrados {
-    return _recebiveis.where((r) {
+    return _storage.recebiveis.where((r) {
       if (_filtroNome.isNotEmpty &&
           !r.descricao.toLowerCase().contains(_filtroNome.toLowerCase())) {
         return false;
@@ -96,7 +99,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Desmarcar recebimento'),
-          content: Text('Deseja remover "${r.descricao}" (R\$ ${r.valor.toStringAsFixed(2)}) dos lançamentos da receita no saldo total?'),
+          content: Text('Deseja remover "${r.descricao}" (R\$ ${formatBRL(r.valor)}) dos lançamentos da receita no saldo total?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -112,7 +115,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
       if (remover == null) return;
 
       if (remover) {
-        final transacoes = await _storage.carregarTransacoes();
+        final transacoes = _storage.transacoes;
         final match = transacoes.where((t) => t.recebivelId == r.id).toList();
         for (final t in match) {
           await _storage.removerTransacao(t.id);
@@ -124,7 +127,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
         id: r.id, descricao: r.descricao, valor: r.valor,
         mes: r.mes, ano: r.ano, data: r.data, grupoId: r.grupoId,
         recebido: false, recorrente: r.recorrente,
-        mesFim: r.mesFim, anoFim: r.anoFim,
+        mesFim: r.mesFim, anoFim: r.anoFim, isDigital: r.isDigital,
       );
       await _storage.atualizarRecebivel(atualizado);
       _carregar();
@@ -135,7 +138,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Recebimento confirmado'),
-        content: Text('Deseja lançar "${r.descricao}" (R\$ ${r.valor.toStringAsFixed(2)}) como receita na carteira?'),
+        content: Text('Deseja lançar "${r.descricao}" (R\$ ${formatBRL(r.valor)}) como receita na carteira?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -151,6 +154,45 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
     if (confirm == null) return;
 
     if (confirm) {
+      if (!mounted) return;
+      bool isDigital = r.isDigital ?? true;
+      final tipoDialog = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            bool tempDigital = isDigital;
+            return AlertDialog(
+              title: const Text('Tipo de lançamento'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Este recebimento é digital ou papel?'),
+                  const SizedBox(height: 16),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: true, label: Text('Digital'), icon: Icon(Icons.phone_android)),
+                      ButtonSegment(value: false, label: Text('Dinheiro'), icon: Icon(Icons.receipt)),
+                    ],
+                    selected: {tempDigital},
+                    onSelectionChanged: (v) => setDialogState(() => tempDigital = v.first),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, tempDigital),
+                  child: const Text('Confirmar'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+      if (tipoDialog == null) return;
+      if (!mounted) return;
+
+      isDigital = tipoDialog;
       final transacao = Transacao(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         descricao: r.descricao,
@@ -159,8 +201,19 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
         data: r.data ?? DateTime.now(),
         grupoId: r.grupoId,
         recebivelId: r.id,
+        isDigital: isDigital,
       );
       await _storage.adicionarTransacao(transacao);
+
+      final atualizado = Recebivel(
+        id: r.id, descricao: r.descricao, valor: r.valor,
+        mes: r.mes, ano: r.ano, data: r.data, grupoId: r.grupoId,
+        recebido: true, recorrente: r.recorrente,
+        mesFim: r.mesFim, anoFim: r.anoFim, isDigital: isDigital,
+      );
+      await _storage.atualizarRecebivel(atualizado);
+      _carregar();
+      return;
     }
     widget.onTransacaoChanged?.call();
 
@@ -168,7 +221,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
       id: r.id, descricao: r.descricao, valor: r.valor,
       mes: r.mes, ano: r.ano, data: r.data, grupoId: r.grupoId,
       recebido: true, recorrente: r.recorrente,
-      mesFim: r.mesFim, anoFim: r.anoFim,
+      mesFim: r.mesFim, anoFim: r.anoFim, isDigital: r.isDigital,
     );
     await _storage.atualizarRecebivel(atualizado);
     _carregar();
@@ -250,7 +303,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
     final result = await showDialog<Set<String>>(
       context: context,
       builder: (ctx) => _SeletorGruposRecebivel(
-        grupos: _grupos.where((g) => g.isRecebivel).toList(),
+        grupos: _storage.grupos.where((g) => g.isRecebivel).toList(),
         selecionados: Set<String>.from(_filtroGrupos),
       ),
     );
@@ -350,13 +403,13 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
             Text('Total a Receber', style: TextStyle(fontSize: 16, color: isDark ? Colors.grey[400] : Colors.grey[600])),
             const SizedBox(height: 8),
             Text(
-              'R\$ ${_totalPendente.toStringAsFixed(2)}',
+              'R\$ ${formatBRL(_totalPendente)}',
               style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green),
             ),
             if (_totalRecebido > 0) ...[
               const SizedBox(height: 4),
               Text(
-                'Recebido: R\$ ${_totalRecebido.toStringAsFixed(2)}',
+                'Recebido: R\$ ${formatBRL(_totalRecebido)}',
                 style: TextStyle(fontSize: 14, color: isDark ? Colors.grey[400] : Colors.grey[500]),
               ),
             ],
@@ -544,7 +597,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
   }
 
   Widget _buildRecebivelTile(Recebivel r) {
-    final nomeGrupo = _storage.getNomeGrupo(r.grupoId, _grupos);
+    final nomeGrupo = _storage.getNomeGrupo(r.grupoId);
     final periodoStr = r.recorrente && r.mesFim != null && r.anoFim != null
         ? '${_meses[r.mes - 1]} ${r.ano} — ${_meses[r.mesFim! - 1]} ${r.anoFim}'
         : null;
@@ -583,6 +636,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
             ?nomeGrupo,
             if (r.data != null) DateFormat('dd/MM').format(r.data!),
             ?periodoStr,
+            if (r.isDigital != null) (r.isDigital! ? 'Digital' : 'Dinheiro'),
           ].join(' • '),
           style: const TextStyle(fontSize: 12),
         ),
@@ -590,7 +644,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '+R\$ ${r.valor.toStringAsFixed(2)}',
+              '+R\$ ${formatBRL(r.valor)}',
               style: TextStyle(
                 color: r.recebido ? Colors.grey : Colors.green,
                 fontWeight: FontWeight.bold,

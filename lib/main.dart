@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/main_screen.dart';
+import 'services/storage_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,19 +17,22 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   ThemeMode _themeMode = ThemeMode.light;
   static const _themeKey = 'theme_mode';
+  bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
-    _carregarTema();
+    _initialize();
   }
 
-  Future<void> _carregarTema() async {
+  Future<void> _initialize() async {
     final prefs = await SharedPreferences.getInstance();
     final salvo = prefs.getString(_themeKey);
-    if (salvo == 'dark' && mounted) {
-      setState(() => _themeMode = ThemeMode.dark);
+    if (salvo == 'dark') {
+      _themeMode = ThemeMode.dark;
     }
+    await StorageService.instance.init();
+    if (mounted) setState(() => _initialized = true);
   }
 
   void _toggleTheme() async {
@@ -126,7 +130,20 @@ class _MyAppState extends State<MyApp> {
           }),
         ),
       ),
-      home: MainScreen(onToggleTheme: _toggleTheme),
+      home: _initialized
+          ? MainScreen(onToggleTheme: _toggleTheme)
+          : const Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Carregando...'),
+                  ],
+                ),
+              ),
+            ),
       debugShowCheckedModeBanner: false,
     );
   }

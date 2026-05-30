@@ -7,9 +7,12 @@ import '../models/recebivel.dart';
 class SupabaseService {
   static SupabaseClient? _client;
   static bool _initialized = false;
+  static RealtimeChannel? _realtimeChannel;
 
   static const _urlKey = 'supabase_url';
   static const _anonKey = 'supabase_anon_key';
+
+  static SupabaseClient? get client => _client;
 
   static Future<Map<String, String>> carregarCredenciais() async {
     final prefs = await SharedPreferences.getInstance();
@@ -65,10 +68,38 @@ class SupabaseService {
     return 'Erro ao sincronizar $tabela: $e';
   }
 
+  // --- Realtime ---
+
+  static void initRealtime({
+    required void Function() onAnyChange,
+  }) {
+    if (!isConfigured) return;
+    disposeRealtime();
+    _realtimeChannel = _client!.channel('realtime-all');
+
+    for (final table in ['transacoes', 'grupos', 'recebiveis']) {
+      _realtimeChannel!.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: table,
+        callback: (payload) {
+          onAnyChange();
+        },
+      );
+    }
+
+    _realtimeChannel!.subscribe();
+  }
+
+  static void disposeRealtime() {
+    _realtimeChannel?.unsubscribe();
+    _realtimeChannel = null;
+  }
+
   // --- Transacoes ---
 
   static Future<String?> upsertTransacao(Transacao t) async {
-    if (!isConfigured) return null;
+    if (!isConfigured) return 'Supabase não configurado.';
     try {
       await _client!.from('transacoes').upsert(t.toJson());
       return null;
@@ -78,7 +109,7 @@ class SupabaseService {
   }
 
   static Future<String?> deleteTransacao(String id) async {
-    if (!isConfigured) return null;
+    if (!isConfigured) return 'Supabase não configurado.';
     try {
       await _client!.from('transacoes').delete().eq('id', id);
       return null;
@@ -87,15 +118,11 @@ class SupabaseService {
     }
   }
 
-  static Future<String?> _syncTransacoes(List<Transacao> transacoes) async {
-    if (!isConfigured) return 'Supabase não configurado.';
-    try {
-      final data = transacoes.map((t) => t.toJson()).toList();
-      await _client!.from('transacoes').upsert(data);
-      return null;
-    } catch (e) {
-      return _tratarErro(e, 'transacoes');
-    }
+  static Future<List<Transacao>> fetchAllTransacoes() async {
+    final response = await _client!.from('transacoes').select().order('data', ascending: false);
+    return (response as List)
+        .map((e) => Transacao.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   static Future<List<Transacao>> fetchTransacoesPorAno(int ano) async {
@@ -105,7 +132,8 @@ class SupabaseService {
         .from('transacoes')
         .select()
         .gte('data', inicio)
-        .lte('data', fim);
+        .lte('data', fim)
+        .order('data', ascending: false);
     return (response as List)
         .map((e) => Transacao.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -114,7 +142,7 @@ class SupabaseService {
   // --- Grupos ---
 
   static Future<String?> upsertGrupo(Grupo g) async {
-    if (!isConfigured) return null;
+    if (!isConfigured) return 'Supabase não configurado.';
     try {
       await _client!.from('grupos').upsert(g.toJson());
       return null;
@@ -124,20 +152,9 @@ class SupabaseService {
   }
 
   static Future<String?> deleteGrupo(String id) async {
-    if (!isConfigured) return null;
-    try {
-      await _client!.from('grupos').delete().eq('id', id);
-      return null;
-    } catch (e) {
-      return _tratarErro(e, 'grupos');
-    }
-  }
-
-  static Future<String?> _syncGrupos(List<Grupo> grupos) async {
     if (!isConfigured) return 'Supabase não configurado.';
     try {
-      final data = grupos.map((g) => g.toJson()).toList();
-      await _client!.from('grupos').upsert(data);
+      await _client!.from('grupos').delete().eq('id', id);
       return null;
     } catch (e) {
       return _tratarErro(e, 'grupos');
@@ -154,7 +171,7 @@ class SupabaseService {
   // --- Recebiveis ---
 
   static Future<String?> upsertRecebivel(Recebivel r) async {
-    if (!isConfigured) return null;
+    if (!isConfigured) return 'Supabase não configurado.';
     try {
       await _client!.from('recebiveis').upsert(r.toJson());
       return null;
@@ -164,7 +181,7 @@ class SupabaseService {
   }
 
   static Future<String?> deleteRecebivel(String id) async {
-    if (!isConfigured) return null;
+    if (!isConfigured) return 'Supabase não configurado.';
     try {
       await _client!.from('recebiveis').delete().eq('id', id);
       return null;
@@ -173,82 +190,10 @@ class SupabaseService {
     }
   }
 
-  static Future<String?> _syncRecebiveis(List<Recebivel> recebiveis) async {
-    if (!isConfigured) return 'Supabase não configurado.';
-    try {
-      final data = recebiveis.map((r) => r.toJson()).toList();
-      await _client!.from('recebiveis').upsert(data);
-      return null;
-    } catch (e) {
-      return _tratarErro(e, 'recebiveis');
-    }
-  }
-
-  static Future<List<Recebivel>> fetchRecebiveisPorAno(int ano) async {
-    final response = await _client!.from('recebiveis').select();
+  static Future<List<Recebivel>> fetchAllRecebiveis() async {
+    final response = await _client!.from('recebiveis').select().order('ano', ascending: false);
     return (response as List)
         .map((e) => Recebivel.fromJson(e as Map<String, dynamic>))
-        .where((r) => r.ano <= ano && (r.anoFim == null || r.anoFim! >= ano))
         .toList();
-  }
-
-  // --- Sync inicial / fundo ---
-
-  static Future<String?> syncAno({
-    required int ano,
-    required List<Transacao> transacoesLocais,
-    required List<Grupo> gruposLocais,
-    required List<Recebivel> recebiveisLocais,
-    required Future<void> Function(List<Transacao>) salvarTransacoes,
-    required Future<void> Function(List<Grupo>) salvarGrupos,
-    required Future<void> Function(List<Recebivel>) salvarRecebiveis,
-  }) async {
-    final erro = await initialize();
-    if (erro != null) return erro;
-
-    try {
-      final transacoesCloud = await fetchTransacoesPorAno(ano);
-      final recebiveisCloud = await fetchRecebiveisPorAno(ano);
-      final gruposCloud = await fetchGrupos();
-
-      final localTIds = transacoesLocais.map((t) => t.id).toSet();
-      final localRIds = recebiveisLocais.map((r) => r.id).toSet();
-      final localGIds = gruposLocais.map((g) => g.id).toSet();
-
-      final cloudTIds = transacoesCloud.map((t) => t.id).toSet();
-      final cloudRIds = recebiveisCloud.map((r) => r.id).toSet();
-      final cloudGIds = gruposCloud.map((g) => g.id).toSet();
-
-      final uploadT = transacoesLocais.where((t) => !cloudTIds.contains(t.id)).toList();
-      final uploadR = recebiveisLocais.where((r) => !cloudRIds.contains(r.id)).toList();
-      final uploadG = gruposLocais.where((g) => !cloudGIds.contains(g.id)).toList();
-
-      if (uploadT.isNotEmpty) {
-        final r = await _syncTransacoes(uploadT);
-        if (r != null) return r;
-      }
-      if (uploadR.isNotEmpty) {
-        final r = await _syncRecebiveis(uploadR);
-        if (r != null) return r;
-      }
-      if (uploadG.isNotEmpty) {
-        final r = await _syncGrupos(uploadG);
-        if (r != null) return r;
-      }
-
-      final novosT = transacoesCloud.where((t) => !localTIds.contains(t.id)).toList();
-      final novosR = recebiveisCloud.where((r) => !localRIds.contains(r.id)).toList();
-      final novosG = gruposCloud.where((g) => !localGIds.contains(g.id)).toList();
-
-      if (novosT.isNotEmpty || novosR.isNotEmpty || novosG.isNotEmpty) {
-        await salvarTransacoes([...transacoesLocais, ...novosT]);
-        await salvarRecebiveis([...recebiveisLocais, ...novosR]);
-        await salvarGrupos([...gruposLocais, ...novosG]);
-      }
-
-      return null;
-    } catch (e) {
-      return 'Erro ao sincronizar: $e';
-    }
   }
 }

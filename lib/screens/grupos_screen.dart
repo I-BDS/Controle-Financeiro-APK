@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/grupo.dart';
 import '../services/storage_service.dart';
+import '../helpers/format_util.dart';
 
 class GruposScreen extends StatefulWidget {
   const GruposScreen({super.key});
@@ -10,18 +11,27 @@ class GruposScreen extends StatefulWidget {
 }
 
 class _GruposScreenState extends State<GruposScreen> {
-  final _storage = StorageService();
-  List<Grupo> _grupos = [];
+  final _storage = StorageService.instance;
 
   @override
   void initState() {
     super.initState();
+    _storage.addListener(_onDataChanged);
     _carregar();
   }
 
+  @override
+  void dispose() {
+    _storage.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _carregar() async {
-    final g = await _storage.carregarGrupos();
-    if (mounted) setState(() => _grupos = g);
+    setState(() {});
   }
 
   Future<void> _adicionar() async {
@@ -88,9 +98,9 @@ class _GruposScreenState extends State<GruposScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final receitaGrupos = _grupos.where((g) => g.isReceita && !g.isRecebivel).toList();
-    final despesaGrupos = _grupos.where((g) => !g.isReceita).toList();
-    final recebivelGrupos = _grupos.where((g) => g.isRecebivel).toList();
+    final receitaGrupos = _storage.grupos.where((g) => g.isReceita && !g.isRecebivel).toList();
+    final despesaGrupos = _storage.grupos.where((g) => !g.isReceita).toList();
+    final recebivelGrupos = _storage.grupos.where((g) => g.isRecebivel).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -140,7 +150,7 @@ class _GruposScreenState extends State<GruposScreen> {
         leading: Icon(grupo.icone, color: cor),
         title: Text(grupo.nome),
         subtitle: grupo.limite != null && !grupo.isReceita
-            ? Text('Limite: R\$ ${grupo.limite!.toStringAsFixed(2)}', style: TextStyle(fontSize: 12, color: isDark ? Colors.grey[400] : Colors.grey[600]))
+            ? Text('Limite: R\$ ${formatBRL(grupo.limite!)}', style: TextStyle(fontSize: 12, color: isDark ? Colors.grey[400] : Colors.grey[600]))
             : null,
         trailing: Row(
           mainAxisSize: MainAxisSize.min,

@@ -6,6 +6,7 @@ class Transacao {
   final DateTime data;
   final String? grupoId;
   final String? recebivelId;
+  final bool? isDigital;
 
   Transacao({
     required this.id,
@@ -15,6 +16,7 @@ class Transacao {
     required this.data,
     this.grupoId,
     this.recebivelId,
+    this.isDigital,
   });
 
   Map<String, dynamic> toJson() => {
@@ -25,6 +27,7 @@ class Transacao {
     'data': data.toIso8601String(),
     if (grupoId != null) 'grupoId': grupoId,
     if (recebivelId != null) 'recebivelId': recebivelId,
+    if (isDigital != null) 'isDigital': isDigital,
   };
 
   factory Transacao.fromJson(Map<String, dynamic> json) => Transacao(
@@ -35,6 +38,7 @@ class Transacao {
     data: DateTime.parse(json['data']),
     grupoId: json['grupoId'],
     recebivelId: json['recebivelId'],
+    isDigital: json['isDigital'],
   );
 
   String get mesAno => '${data.month.toString().padLeft(2, '0')}/${data.year}';

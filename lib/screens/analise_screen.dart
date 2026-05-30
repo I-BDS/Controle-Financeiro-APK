@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/transacao.dart';
 import '../models/grupo.dart';
-import '../models/recebivel.dart';
 import '../services/storage_service.dart';
+import '../helpers/format_util.dart';
 
 class AnaliseScreen extends StatefulWidget {
   const AnaliseScreen({super.key});
@@ -14,41 +15,49 @@ class AnaliseScreen extends StatefulWidget {
 }
 
 class AnaliseScreenState extends State<AnaliseScreen> {
-  final _storage = StorageService();
-  List<Transacao> _transacoes = [];
-  List<Recebivel> _recebiveis = [];
-  List<Grupo> _grupos = [];
+  final _storage = StorageService.instance;
   int _ano = DateTime.now().year;
+  double _limiteRF = 30639.90;
+  static const _limiteRFKey = 'limite_receita_federal';
 
   DateTime? _dataInicio;
   DateTime? _dataFim;
   bool _usarFiltroData = false;
 
   final Set<String> _gruposFiltro = {};
+  bool _expandirRF = false;
 
   @override
   void initState() {
     super.initState();
+    _storage.addListener(_onDataChanged);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _storage.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> reload() => _load();
 
   Future<void> _load() async {
-    final t = await _storage.carregarTransacoes();
-    final r = await _storage.carregarRecebiveis();
-    final g = await _storage.carregarGrupos();
+    final prefs = await SharedPreferences.getInstance();
+    final limite = prefs.getDouble(_limiteRFKey) ?? 30639.90;
     if (mounted) {
       setState(() {
-        _transacoes = t;
-        _recebiveis = r;
-        _grupos = g;
+        _limiteRF = limite;
       });
     }
   }
 
   List<Transacao> get _transacoesFiltradas {
-    return _transacoes.where((t) {
+    return _storage.transacoes.where((t) {
       if (t.data.year != _ano) return false;
       if (_usarFiltroData) {
         if (_dataInicio != null && t.data.isBefore(_dataInicio!)) return false;
@@ -79,8 +88,25 @@ class AnaliseScreenState extends State<AnaliseScreen> {
     if (picked != null) setState(() => _dataFim = picked);
   }
 
+  bool get _temDados {
+    return _transacoesFiltradas.isNotEmpty ||
+        _storage.recebiveis.any((r) => r.ano == _ano && !r.recebido) ||
+        _storage.recebiveis.any((r) =>
+            r.recorrente &&
+            r.anoFim != null &&
+            r.ano <= _ano &&
+            r.anoFim! >= _ano);
+  }
+
+  double get _totalReceitasAno {
+    return _storage.transacoes
+        .where((t) => t.data.year == _ano && t.isReceita && (t.isDigital == true))
+        .fold(0.0, (s, t) => s + t.valor);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final filtradas = _transacoesFiltradas;
 
     double totalReceitas = 0, totalDespesas = 0, totalAReceber = 0;
@@ -98,7 +124,7 @@ class AnaliseScreenState extends State<AnaliseScreen> {
       }
     }
 
-    for (final r in _recebiveis.where((r) => !r.recebido)) {
+    for (final r in _storage.recebiveis.where((r) => !r.recebido)) {
       if (r.ano > _ano) continue;
       if (r.ano < _ano && (!r.recorrente || r.mesFim == null)) continue;
       if (r.recorrente && r.anoFim != null && r.anoFim! < _ano) continue;
@@ -117,6 +143,8 @@ class AnaliseScreenState extends State<AnaliseScreen> {
     }
 
     final maxY = _calcularMaxY(receitasMes, despesasMes, aReceberMes);
+    final restanteRF = (_limiteRF - _totalReceitasAno).clamp(0.0, _limiteRF);
+    final proporcaoRF = _limiteRF > 0 ? (_totalReceitasAno / _limiteRF).clamp(0.0, 1.0) : 0.0;
 
     return Scaffold(
       appBar: AppBar(
@@ -139,27 +167,11 @@ class AnaliseScreenState extends State<AnaliseScreen> {
             const SizedBox(height: 8),
             _buildFiltroGrupos(),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _buildSummaryCard('Receitas', totalReceitas, Colors.green)),
-                const SizedBox(width: 8),
-                Expanded(child: _buildSummaryCard('Despesas', totalDespesas, Colors.red)),
-                const SizedBox(width: 8),
-                Expanded(child: _buildSummaryCard('A Receber', totalAReceber, Colors.orange)),
-              ],
-            ),
-            const SizedBox(height: 24),
-            if (filtradas.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 40),
-                child: Center(
-                  child: Text(
-                    'Nenhum dado para o período selecionado.',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                  ),
-                ),
-              )
-            else ...[
+            _buildResumoAnual(totalReceitas, totalDespesas, totalAReceber),
+            const SizedBox(height: 16),
+            _buildLimiteRFCard(isDark, restanteRF, proporcaoRF),
+            const SizedBox(height: 16),
+            if (_temDados) ...[
               SizedBox(
                 height: 280,
                 child: BarChart(
@@ -176,7 +188,7 @@ class AnaliseScreenState extends State<AnaliseScreen> {
                           const labels = ['Receita', 'Despesa', 'A Receber'];
                           final label = rodIndex < labels.length ? labels[rodIndex] : '';
                           return BarTooltipItem(
-                            '${meses[group.x - 1]}\n$label: R\$ ${rod.toY.toStringAsFixed(2)}',
+                            '${meses[group.x - 1]}\n$label: R\$ ${formatBRL(rod.toY)}',
                             TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                           );
                         },
@@ -267,8 +279,111 @@ class AnaliseScreenState extends State<AnaliseScreen> {
                   _buildLegenda(Colors.orange, 'A Receber'),
                 ],
               ),
-            ],
+            ] else
+              Padding(
+                padding: const EdgeInsets.only(top: 40),
+                child: Center(
+                  child: Text(
+                    'Nenhum dado para o período selecionado.',
+                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                  ),
+                ),
+              ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResumoAnual(double totalReceitas, double totalDespesas, double totalAReceber) {
+    return Row(
+      children: [
+        Expanded(child: _buildSummaryCard('Receitas', totalReceitas, Colors.green)),
+        const SizedBox(width: 8),
+        Expanded(child: _buildSummaryCard('Despesas', totalDespesas, Colors.red)),
+        const SizedBox(width: 8),
+        Expanded(child: _buildSummaryCard('A Receber', totalAReceber, Colors.orange)),
+      ],
+    );
+  }
+
+  Widget _buildLimiteRFCard(bool isDark, double restante, double proporcao) {
+    final estourou = _totalReceitasAno >= _limiteRF;
+    return Card(
+      elevation: 2,
+      color: estourou
+          ? (isDark ? Colors.orange.shade900 : Colors.orange.shade50)
+          : (isDark ? Colors.teal.shade900 : Colors.teal.shade50),
+      child: InkWell(
+        onTap: () => setState(() => _expandirRF = !_expandirRF),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.account_balance, size: 18,
+                      color: estourou ? Colors.orange : (isDark ? Colors.grey[400] : Colors.grey[600])),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Limite Receita Federal',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold,
+                          color: estourou ? Colors.orange : (isDark ? Colors.grey[300] : Colors.grey[700])),
+                    ),
+                  ),
+                  Text(
+                    'R\$ ${formatBRL(_limiteRF)}',
+                    style: TextStyle(fontSize: 12,
+                        color: estourou ? Colors.orange : (isDark ? Colors.grey[400] : Colors.grey[600])),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    _expandirRF ? Icons.expand_less : Icons.expand_more,
+                    size: 20,
+                    color: estourou ? Colors.orange : (isDark ? Colors.grey[400] : Colors.grey[600]),
+                  ),
+                ],
+              ),
+              if (_expandirRF) ...[
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: proporcao,
+                    backgroundColor: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                    color: estourou ? Colors.orange : (proporcao > 0.8 ? Colors.amber : Colors.green),
+                    minHeight: 10,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Rendimentos: R\$ ${formatBRL(_totalReceitasAno)}',
+                      style: TextStyle(fontSize: 12, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                    ),
+                    if (estourou)
+                      Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, size: 14, color: Colors.orange),
+                          const SizedBox(width: 4),
+                          Text('ATENÇÃO!', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange)),
+                        ],
+                      )
+                    else
+                      Text(
+                        'Falta R\$ ${formatBRL(restante)}',
+                        style: TextStyle(fontSize: 12,
+                            color: proporcao > 0.8 ? Colors.amber : (isDark ? Colors.grey[400] : Colors.grey[600])),
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -377,7 +492,7 @@ class AnaliseScreenState extends State<AnaliseScreen> {
   }
 
   Widget _buildFiltroGrupos() {
-    if (_grupos.isEmpty) return const SizedBox.shrink();
+    if (_storage.grupos.isEmpty) return const SizedBox.shrink();
 
     return InkWell(
       onTap: _abrirSeletorGrupos,
@@ -411,7 +526,7 @@ class AnaliseScreenState extends State<AnaliseScreen> {
     final result = await showDialog<Set<String>>(
       context: context,
       builder: (ctx) => _SeletorGruposDialog(
-        grupos: _grupos,
+        grupos: _storage.grupos,
         selecionados: Set<String>.from(_gruposFiltro),
       ),
     );
@@ -432,7 +547,7 @@ class AnaliseScreenState extends State<AnaliseScreen> {
             Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
             const SizedBox(height: 4),
             Text(
-              'R\$ ${valor.toStringAsFixed(2)}',
+              'R\$ ${formatBRL(valor)}',
               style: TextStyle(color: cor, fontWeight: FontWeight.bold, fontSize: 14),
               textAlign: TextAlign.center,
             ),

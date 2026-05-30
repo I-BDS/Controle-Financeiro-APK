@@ -10,6 +10,7 @@ class Recebivel {
   final bool recorrente;
   final int? mesFim;
   final int? anoFim;
+  final bool? isDigital;
 
   Recebivel({
     required this.id,
@@ -23,6 +24,7 @@ class Recebivel {
     this.recorrente = false,
     this.mesFim,
     this.anoFim,
+    this.isDigital,
   });
 
   Map<String, dynamic> toJson() => {
@@ -37,6 +39,7 @@ class Recebivel {
     'recorrente': recorrente,
     if (mesFim != null) 'mesFim': mesFim,
     if (anoFim != null) 'anoFim': anoFim,
+    if (isDigital != null) 'isDigital': isDigital,
   };
 
   factory Recebivel.fromJson(Map<String, dynamic> json) => Recebivel(
@@ -51,6 +54,7 @@ class Recebivel {
     recorrente: json['recorrente'] ?? false,
     mesFim: json['mesFim'],
     anoFim: json['anoFim'],
+    isDigital: json['isDigital'],
   );
 
   String get mesAno => '${mes.toString().padLeft(2, '0')}/$ano';

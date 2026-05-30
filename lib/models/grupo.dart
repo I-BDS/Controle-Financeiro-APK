@@ -31,7 +31,10 @@ class Grupo {
     nome: json['nome'],
     isReceita: json['isReceita'],
     isRecebivel: json['isRecebivel'] ?? false,
-    icone: IconData((json['iconCodePoint'] as int?) ?? Icons.category.codePoint),
+    icone: json['iconCodePoint'] != null
+        // ignore: non_const_argument_for_const_parameter
+        ? IconData(json['iconCodePoint'] as int)
+        : Icons.category,
     limite: (json['limite'] as num?)?.toDouble(),
   );
 }

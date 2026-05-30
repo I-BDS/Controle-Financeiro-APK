@@ -1,166 +1,172 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/transacao.dart';
 import '../models/grupo.dart';
 import '../models/recebivel.dart';
 import 'supabase_service.dart';
 
-class StorageService {
-  static const _transacoesKey = 'transacoes';
-  static const _gruposKey = 'grupos';
-  static const _recebiveisKey = 'recebiveis';
+class StorageService extends ChangeNotifier {
+  StorageService._();
+  static final StorageService _instance = StorageService._();
+  static StorageService get instance => _instance;
 
-  Future<List<Transacao>> carregarTransacoes() async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = prefs.getString(_transacoesKey);
-    if (json == null) return [];
-    final list = jsonDecode(json) as List;
-    return list.map((e) => Transacao.fromJson(e as Map<String, dynamic>)).toList();
+  List<Transacao> _transacoes = [];
+  List<Grupo> _grupos = [];
+  List<Recebivel> _recebiveis = [];
+
+  List<Transacao> get transacoes => _transacoes;
+  List<Grupo> get grupos => _grupos;
+  List<Recebivel> get recebiveis => _recebiveis;
+
+  Future<String?> init() async {
+    final erro = await SupabaseService.initialize();
+    if (erro != null) return erro;
+
+    SupabaseService.initRealtime(onAnyChange: _onRealtimeChange);
+
+    await carregarTudo();
+    return null;
   }
 
-  Future<void> salvarTransacoes(List<Transacao> transacoes) async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = jsonEncode(transacoes.map((e) => e.toJson()).toList());
-    await prefs.setString(_transacoesKey, json);
+  void disposeService() {
+    SupabaseService.disposeRealtime();
+    dispose();
   }
 
-  Future<void> adicionarTransacao(Transacao t) async {
-    final transacoes = await carregarTransacoes();
-    transacoes.add(t);
-    await salvarTransacoes(transacoes);
-    SupabaseService.upsertTransacao(t).catchError((_) => null);
+  Future<void> _onRealtimeChange() async {
+    await carregarTudo();
   }
 
-  Future<void> removerTransacao(String id) async {
-    final transacoes = await carregarTransacoes();
-    transacoes.removeWhere((t) => t.id == id);
-    await salvarTransacoes(transacoes);
-    SupabaseService.deleteTransacao(id).catchError((_) => null);
+  Future<void> carregarTudo() async {
+    try {
+      _transacoes = await SupabaseService.fetchAllTransacoes();
+      _grupos = await SupabaseService.fetchGrupos();
+      _recebiveis = await SupabaseService.fetchAllRecebiveis();
+      notifyListeners();
+    } catch (_) {}
   }
 
-  Future<void> atualizarTransacao(Transacao t) async {
-    final transacoes = await carregarTransacoes();
-    final idx = transacoes.indexWhere((tr) => tr.id == t.id);
-    if (idx < 0) return;
-    transacoes[idx] = t;
-    await salvarTransacoes(transacoes);
-    SupabaseService.upsertTransacao(t).catchError((_) => null);
+  Future<void> carregarTransacoes() async {
+    try {
+      _transacoes = await SupabaseService.fetchAllTransacoes();
+      notifyListeners();
+    } catch (_) {}
   }
 
-  Future<List<Grupo>> carregarGrupos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = prefs.getString(_gruposKey);
-    if (json == null) {
-      final padrao = _gruposPadrao();
-      await salvarGrupos(padrao);
-      return padrao;
+  Future<void> carregarGrupos() async {
+    try {
+      _grupos = await SupabaseService.fetchGrupos();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> carregarRecebiveis() async {
+    try {
+      _recebiveis = await SupabaseService.fetchAllRecebiveis();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  // --- Transacoes ---
+
+  Future<String?> adicionarTransacao(Transacao t) async {
+    final erro = await SupabaseService.upsertTransacao(t);
+    if (erro == null) {
+      _transacoes.insert(0, t);
+      notifyListeners();
     }
-    final list = jsonDecode(json) as List;
-    var grupos = list.map((e) => Grupo.fromJson(e as Map<String, dynamic>)).toList();
-    final idsExistentes = grupos.map((g) => g.id).toSet();
-    final faltantes = _gruposPadrao().where((g) => !idsExistentes.contains(g.id)).toList();
-    if (faltantes.isNotEmpty) {
-      grupos.addAll(faltantes);
-      await salvarGrupos(grupos);
+    return erro;
+  }
+
+  Future<String?> atualizarTransacao(Transacao t) async {
+    final erro = await SupabaseService.upsertTransacao(t);
+    if (erro == null) {
+      final idx = _transacoes.indexWhere((tr) => tr.id == t.id);
+      if (idx >= 0) _transacoes[idx] = t;
+      notifyListeners();
     }
-    return grupos;
+    return erro;
   }
 
-  Future<void> salvarGrupos(List<Grupo> grupos) async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = jsonEncode(grupos.map((e) => e.toJson()).toList());
-    await prefs.setString(_gruposKey, json);
+  Future<String?> removerTransacao(String id) async {
+    final erro = await SupabaseService.deleteTransacao(id);
+    if (erro == null) {
+      _transacoes.removeWhere((t) => t.id == id);
+      notifyListeners();
+    }
+    return erro;
   }
 
-  Future<void> adicionarGrupo(Grupo g) async {
-    final grupos = await carregarGrupos();
-    grupos.add(g);
-    await salvarGrupos(grupos);
-    SupabaseService.upsertGrupo(g).catchError((_) => null);
+  // --- Grupos ---
+
+  Future<String?> adicionarGrupo(Grupo g) async {
+    final erro = await SupabaseService.upsertGrupo(g);
+    if (erro == null) {
+      _grupos.add(g);
+      notifyListeners();
+    }
+    return erro;
   }
 
-  Future<void> removerGrupo(String id) async {
-    final grupos = await carregarGrupos();
-    grupos.removeWhere((g) => g.id == id);
-    await salvarGrupos(grupos);
-    SupabaseService.deleteGrupo(id).catchError((_) => null);
+  Future<String?> atualizarGrupo(Grupo g) async {
+    final erro = await SupabaseService.upsertGrupo(g);
+    if (erro == null) {
+      final idx = _grupos.indexWhere((gr) => gr.id == g.id);
+      if (idx >= 0) _grupos[idx] = g;
+      notifyListeners();
+    }
+    return erro;
   }
 
-  Future<void> atualizarGrupo(Grupo g) async {
-    final grupos = await carregarGrupos();
-    final idx = grupos.indexWhere((gr) => gr.id == g.id);
-    if (idx < 0) return;
-    grupos[idx] = g;
-    await salvarGrupos(grupos);
-    SupabaseService.upsertGrupo(g).catchError((_) => null);
+  Future<String?> removerGrupo(String id) async {
+    final erro = await SupabaseService.deleteGrupo(id);
+    if (erro == null) {
+      _grupos.removeWhere((g) => g.id == id);
+      notifyListeners();
+    }
+    return erro;
   }
 
-  Future<List<Recebivel>> carregarRecebiveis() async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = prefs.getString(_recebiveisKey);
-    if (json == null) return [];
-    final list = jsonDecode(json) as List;
-    return list.map((e) => Recebivel.fromJson(e as Map<String, dynamic>)).toList();
+  // --- Recebiveis ---
+
+  Future<String?> adicionarRecebivel(Recebivel r) async {
+    final erro = await SupabaseService.upsertRecebivel(r);
+    if (erro == null) {
+      _recebiveis.insert(0, r);
+      notifyListeners();
+    }
+    return erro;
   }
 
-  Future<void> salvarRecebiveis(List<Recebivel> recebiveis) async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = jsonEncode(recebiveis.map((e) => e.toJson()).toList());
-    await prefs.setString(_recebiveisKey, json);
+  Future<String?> atualizarRecebivel(Recebivel r) async {
+    final erro = await SupabaseService.upsertRecebivel(r);
+    if (erro == null) {
+      final idx = _recebiveis.indexWhere((re) => re.id == r.id);
+      if (idx >= 0) _recebiveis[idx] = r;
+      notifyListeners();
+    }
+    return erro;
   }
 
-  Future<void> adicionarRecebivel(Recebivel r) async {
-    final recebiveis = await carregarRecebiveis();
-    recebiveis.add(r);
-    await salvarRecebiveis(recebiveis);
-    SupabaseService.upsertRecebivel(r).catchError((_) => null);
+  Future<String?> removerRecebivel(String id) async {
+    final erro = await SupabaseService.deleteRecebivel(id);
+    if (erro == null) {
+      _recebiveis.removeWhere((r) => r.id == id);
+      notifyListeners();
+    }
+    return erro;
   }
 
-  Future<void> atualizarRecebivel(Recebivel r) async {
-    final recebiveis = await carregarRecebiveis();
-    final idx = recebiveis.indexWhere((re) => re.id == r.id);
-    if (idx < 0) return;
-    recebiveis[idx] = r;
-    await salvarRecebiveis(recebiveis);
-    SupabaseService.upsertRecebivel(r).catchError((_) => null);
-  }
+  // --- Helpers ---
 
-  Future<void> removerRecebivel(String id) async {
-    final recebiveis = await carregarRecebiveis();
-    recebiveis.removeWhere((r) => r.id == id);
-    await salvarRecebiveis(recebiveis);
-    SupabaseService.deleteRecebivel(id).catchError((_) => null);
-  }
-
-  String? getNomeGrupo(String? grupoId, List<Grupo> grupos) {
+  String? getNomeGrupo(String? grupoId) {
     if (grupoId == null) return null;
-    final idx = grupos.indexWhere((g) => g.id == grupoId);
-    return idx >= 0 ? grupos[idx].nome : null;
+    final idx = _grupos.indexWhere((g) => g.id == grupoId);
+    return idx >= 0 ? _grupos[idx].nome : null;
   }
 
-  IconData? getIconeGrupo(String? grupoId, List<Grupo> grupos) {
+  IconData? getIconeGrupo(String? grupoId) {
     if (grupoId == null) return null;
-    final idx = grupos.indexWhere((g) => g.id == grupoId);
-    return idx >= 0 ? grupos[idx].icone : null;
+    final idx = _grupos.indexWhere((g) => g.id == grupoId);
+    return idx >= 0 ? _grupos[idx].icone : null;
   }
-
-  List<Grupo> _gruposPadrao() => [
-    Grupo(id: 'rec_salario', nome: 'Salário', isReceita: true, icone: Icons.work),
-    Grupo(id: 'rec_freela', nome: 'Freelance', isReceita: true, icone: Icons.computer),
-    Grupo(id: 'rec_invest', nome: 'Investimentos', isReceita: true, icone: Icons.trending_up),
-    Grupo(id: 'rec_outros', nome: 'Outros', isReceita: true, icone: Icons.attach_money),
-    Grupo(id: 'desp_alimentacao', nome: 'Alimentação', isReceita: false, icone: Icons.restaurant),
-    Grupo(id: 'desp_transporte', nome: 'Transporte', isReceita: false, icone: Icons.directions_car),
-    Grupo(id: 'desp_moradia', nome: 'Moradia', isReceita: false, icone: Icons.home),
-    Grupo(id: 'desp_saude', nome: 'Saúde', isReceita: false, icone: Icons.local_hospital),
-    Grupo(id: 'desp_lazer', nome: 'Lazer', isReceita: false, icone: Icons.sports_esports),
-    Grupo(id: 'desp_educacao', nome: 'Educação', isReceita: false, icone: Icons.school),
-    Grupo(id: 'desp_vestuario', nome: 'Vestuário', isReceita: false, icone: Icons.checkroom),
-    Grupo(id: 'desp_outros', nome: 'Outros', isReceita: false, icone: Icons.more_horiz),
-    Grupo(id: 'rcv_salario', nome: 'Salário', isReceita: true, isRecebivel: true, icone: Icons.work),
-    Grupo(id: 'rcv_investimentos', nome: 'Investimentos', isReceita: true, isRecebivel: true, icone: Icons.trending_up),
-    Grupo(id: 'rcv_aluguel', nome: 'Aluguel', isReceita: true, isRecebivel: true, icone: Icons.home),
-    Grupo(id: 'rcv_outros', nome: 'Outros', isReceita: true, isRecebivel: true, icone: Icons.more_horiz),
-  ];
 }

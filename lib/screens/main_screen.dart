@@ -115,7 +115,6 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _onTransacaoChanged() {
-    _homeKey.currentState?.reload();
-    _analiseKey.currentState?.reload();
+    // listener pattern auto-refreshes screens
   }
 }

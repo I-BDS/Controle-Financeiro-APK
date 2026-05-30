@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/transacao.dart';
-import '../models/grupo.dart';
 import '../services/storage_service.dart';
-import '../services/supabase_service.dart';
 import 'add_transacao_screen.dart';
 import 'grupos_screen.dart';
 import 'settings_screen.dart';
+import '../helpers/format_util.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback? onTransacaoChanged;
@@ -19,12 +18,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class HomeScreenState extends State<HomeScreen> {
-  final _storage = StorageService();
-  bool _syncing = false;
+  final _storage = StorageService.instance;
 
   Future<void> reload() => _carregar();
-  List<Transacao> _transacoes = [];
-  List<Grupo> _grupos = [];
 
   int _mesSelecionado = DateTime.now().month;
   int _anoSelecionado = DateTime.now().year;
@@ -40,45 +36,26 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _storage.addListener(_onDataChanged);
     _carregar();
   }
 
-  Future<void> _carregar() async {
-    final transacoes = await _storage.carregarTransacoes();
-    final grupos = await _storage.carregarGrupos();
-    setState(() {
-      _transacoes = transacoes;
-      _grupos = grupos;
-    });
-    _syncBackground();
+  @override
+  void dispose() {
+    _storage.removeListener(_onDataChanged);
+    super.dispose();
   }
 
-  Future<void> _syncBackground() async {
-    if (_syncing || !SupabaseService.isConfigured) return;
-    _syncing = true;
-    final ano = _anoSelecionado;
-    final transacoesLocais = await _storage.carregarTransacoes();
-    final recebiveisLocais = await _storage.carregarRecebiveis();
-    final gruposLocais = await _storage.carregarGrupos();
-    final erro = await SupabaseService.syncAno(
-      ano: ano,
-      transacoesLocais: transacoesLocais,
-      gruposLocais: gruposLocais,
-      recebiveisLocais: recebiveisLocais,
-      salvarTransacoes: (t) => _storage.salvarTransacoes(t),
-      salvarGrupos: (g) => _storage.salvarGrupos(g),
-      salvarRecebiveis: (r) => _storage.salvarRecebiveis(r),
-    );
-    if (erro == null) {
-      final t = await _storage.carregarTransacoes();
-      final g = await _storage.carregarGrupos();
-      if (mounted) setState(() { _transacoes = t; _grupos = g; });
-    }
-    _syncing = false;
+  void _onDataChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _carregar() async {
+    setState(() {});
   }
 
   List<Transacao> get _transacoesFiltradas {
-    return _transacoes.where((t) {
+    return _storage.transacoes.where((t) {
       if (t.data.month != _mesSelecionado || t.data.year != _anoSelecionado) return false;
       if (_usarFiltroData) {
         if (_dataInicio != null && t.data.isBefore(_dataInicio!)) return false;
@@ -90,14 +67,13 @@ class HomeScreenState extends State<HomeScreen> {
 
   double get _saldoTotal {
     double total = 0;
-    for (final t in _transacoes) {
+    for (final t in _storage.transacoes) {
       total += t.isReceita ? t.valor : -t.valor;
     }
     return total;
   }
 
   void _mesAnterior() {
-    final anoAntes = _anoSelecionado;
     setState(() {
       if (_mesSelecionado == 1) {
         _mesSelecionado = 12;
@@ -106,11 +82,9 @@ class HomeScreenState extends State<HomeScreen> {
         _mesSelecionado--;
       }
     });
-    if (_anoSelecionado != anoAntes) _syncBackground();
   }
 
   void _mesProximo() {
-    final anoAntes = _anoSelecionado;
     setState(() {
       if (_mesSelecionado == 12) {
         _mesSelecionado = 1;
@@ -119,17 +93,14 @@ class HomeScreenState extends State<HomeScreen> {
         _mesSelecionado++;
       }
     });
-    if (_anoSelecionado != anoAntes) _syncBackground();
   }
 
   void _irParaMesAtual() {
     final agora = DateTime.now();
-    final anoAntes = _anoSelecionado;
     setState(() {
       _mesSelecionado = agora.month;
       _anoSelecionado = agora.year;
     });
-    if (_anoSelecionado != anoAntes) _syncBackground();
   }
 
   Future<void> _selecionarDataInicio() async {
@@ -245,7 +216,7 @@ class HomeScreenState extends State<HomeScreen> {
             Text('Saldo Total', style: TextStyle(fontSize: 16, color: isDark ? Colors.grey[400] : Colors.grey[600])),
             const SizedBox(height: 8),
             Text(
-              'R\$ ${_saldoTotal.toStringAsFixed(2)}',
+              'R\$ ${formatBRL(_saldoTotal)}',
               style: TextStyle(
                 fontSize: 36,
                 fontWeight: FontWeight.bold,
@@ -306,7 +277,7 @@ class HomeScreenState extends State<HomeScreen> {
 
   List<Widget> _buildKpiLimites() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final comLimite = _grupos.where((g) => !g.isReceita && g.limite != null && g.limite! > 0);
+    final comLimite = _storage.grupos.where((g) => !g.isReceita && g.limite != null && g.limite! > 0);
     final gastos = <String, double>{};
     for (final t in _transacoesFiltradas) {
       if (!t.isReceita && t.grupoId != null) {
@@ -359,7 +330,7 @@ class HomeScreenState extends State<HomeScreen> {
                         const SizedBox(width: 8),
                         Text(g.nome, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.red[900])),
                         const Spacer(),
-                        Text('R\$ ${excesso.toStringAsFixed(2)}', style: TextStyle(color: isDark ? Colors.orange[300] : Colors.red[700], fontWeight: FontWeight.bold, fontSize: 13)),
+                        Text('R\$ ${formatBRL(excesso)}', style: TextStyle(color: isDark ? Colors.orange[300] : Colors.red[700], fontWeight: FontWeight.bold, fontSize: 13)),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -376,8 +347,8 @@ class HomeScreenState extends State<HomeScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Limite: R\$ ${g.limite!.toStringAsFixed(2)}', style: TextStyle(fontSize: 11, color: isDark ? Colors.grey[400] : Colors.grey[600])),
-                        Text('Gasto: R\$ ${gasto.toStringAsFixed(2)}', style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.red[700])),
+                        Text('Limite: R\$ ${formatBRL(g.limite!)}', style: TextStyle(fontSize: 11, color: isDark ? Colors.grey[400] : Colors.grey[600])),
+                        Text('Gasto: R\$ ${formatBRL(gasto)}', style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.red[700])),
                       ],
                     ),
                   ],
@@ -585,7 +556,7 @@ class HomeScreenState extends State<HomeScreen> {
       children: [
         Text(label, style: const TextStyle(fontSize: 14)),
         Text(
-          'R\$ ${valor.toStringAsFixed(2)}',
+          'R\$ ${formatBRL(valor)}',
           style: TextStyle(color: cor, fontWeight: FontWeight.w600, fontSize: 14),
         ),
       ],
@@ -605,8 +576,8 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTransacaoTile(Transacao t) {
-    final nomeGrupo = _storage.getNomeGrupo(t.grupoId, _grupos);
-    final iconeGrupo = _storage.getIconeGrupo(t.grupoId, _grupos);
+    final nomeGrupo = _storage.getNomeGrupo(t.grupoId);
+    final iconeGrupo = _storage.getIconeGrupo(t.grupoId);
 
     return ListTile(
       dense: true,
@@ -619,16 +590,18 @@ class HomeScreenState extends State<HomeScreen> {
             ),
       title: Text(t.descricao, style: const TextStyle(fontSize: 14)),
       subtitle: Text(
-        nomeGrupo != null
-            ? '$nomeGrupo • ${t.data.day}/${t.data.month}/${t.data.year}'
-            : '${t.data.day}/${t.data.month}/${t.data.year}',
+        [
+          nomeGrupo ?? '',
+          '${t.data.day}/${t.data.month}/${t.data.year}',
+          if (t.isDigital != null) (t.isDigital! ? 'Digital' : 'Dinheiro'),
+        ].where((s) => s.isNotEmpty).join(' • '),
         style: const TextStyle(fontSize: 12),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '${t.isReceita ? '+' : '-'}R\$ ${t.valor.toStringAsFixed(2)}',
+            '${t.isReceita ? '+' : '-'}R\$ ${formatBRL(t.valor)}',
             style: TextStyle(
               color: t.isReceita ? Colors.green : Colors.red,
               fontWeight: FontWeight.bold,

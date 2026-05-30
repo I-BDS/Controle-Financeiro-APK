@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS transacoes (
   "isReceita" BOOLEAN NOT NULL,
   data TIMESTAMP NOT NULL,
   "grupoId" TEXT,
-  "recebivelId" TEXT
+  "recebivelId" TEXT,
+  "isDigital" BOOLEAN DEFAULT FALSE
 );
 
 -- Tabela de Recebíveis
@@ -46,7 +47,8 @@ CREATE TABLE IF NOT EXISTS recebiveis (
   recebido BOOLEAN DEFAULT FALSE,
   recorrente BOOLEAN DEFAULT FALSE,
   "mesFim" INTEGER,
-  "anoFim" INTEGER
+  "anoFim" INTEGER,
+  "isDigital" BOOLEAN DEFAULT FALSE
 );
 
 -- Índices para consultas rápidas
@@ -59,4 +61,20 @@ CREATE INDEX IF NOT EXISTS idx_recebiveis_grupo ON recebiveis("grupoId");
 ALTER TABLE transacoes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE grupos DISABLE ROW LEVEL SECURITY;
 ALTER TABLE recebiveis DISABLE ROW LEVEL SECURITY;
+
+-- Adicionar colunas novas em tabelas existentes (execução segura mesmo se já existirem)
+ALTER TABLE transacoes ADD COLUMN IF NOT EXISTS "isDigital" BOOLEAN DEFAULT FALSE;
+ALTER TABLE recebiveis ADD COLUMN IF NOT EXISTS "isDigital" BOOLEAN DEFAULT FALSE;
+
+-- =============================================
+-- Ativar Realtime para as tabelas
+-- =============================================
+-- Isso permite que o aplicativo receba atualizações em tempo real
+-- quando outros dispositivos modificarem os dados
+-- =============================================
+
+-- Adiciona as tabelas à publicação de realtime
+ALTER PUBLICATION supabase_realtime ADD TABLE transacoes;
+ALTER PUBLICATION supabase_realtime ADD TABLE grupos;
+ALTER PUBLICATION supabase_realtime ADD TABLE recebiveis;
 ''';

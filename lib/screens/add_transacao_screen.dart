@@ -21,7 +21,8 @@ class _AddTransacaoScreenState extends State<AddTransacaoScreen> {
   late bool _isReceita;
   late DateTime _data;
   String? _grupoId;
-  final _storage = StorageService();
+  bool _isDigital = true;
+  final _storage = StorageService.instance;
   List<Grupo> _grupos = [];
 
   @override
@@ -33,18 +34,16 @@ class _AddTransacaoScreenState extends State<AddTransacaoScreen> {
       _descricaoController.text = widget.transacao!.descricao;
       _valorController.text = widget.transacao!.valor.toStringAsFixed(2);
       _grupoId = widget.transacao!.grupoId;
+      _isDigital = widget.transacao!.isDigital ?? true;
     }
     _carregarGrupos();
   }
 
-  Future<void> _carregarGrupos() async {
-    final g = await _storage.carregarGrupos();
-    setState(() {
-      _grupos = g.where((gr) => gr.isReceita == _isReceita).toList();
-      if (_grupoId == null && _grupos.isNotEmpty) {
-        _grupoId = _grupos.first.id;
-      }
-    });
+  void _carregarGrupos() {
+    _grupos = _storage.grupos.where((gr) => gr.isReceita == _isReceita).toList();
+    if (_grupoId == null && _grupos.isNotEmpty) {
+      _grupoId = _grupos.first.id;
+    }
   }
 
   @override
@@ -64,12 +63,23 @@ class _AddTransacaoScreenState extends State<AddTransacaoScreen> {
       isReceita: _isReceita,
       data: _data,
       grupoId: _grupoId,
+      isDigital: _isDigital,
     );
 
+    String? erro;
     if (widget.transacao != null) {
-      await _storage.atualizarTransacao(transacao);
+      erro = await _storage.atualizarTransacao(transacao);
     } else {
-      await _storage.adicionarTransacao(transacao);
+      erro = await _storage.adicionarTransacao(transacao);
+    }
+    if (erro != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(erro),
+          backgroundColor: Colors.red,
+        ));
+      }
+      return;
     }
     if (mounted) Navigator.pop(context, true);
   }
@@ -149,6 +159,15 @@ class _AddTransacaoScreenState extends State<AddTransacaoScreen> {
               leading: const Icon(Icons.calendar_today),
               title: Text('Data: ${DateFormat('dd/MM/yyyy').format(_data)}'),
               onTap: _selecionarData,
+            ),
+            const SizedBox(height: 16),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: true, label: Text('Digital'), icon: Icon(Icons.phone_android)),
+                ButtonSegment(value: false, label: Text('Dinheiro'), icon: Icon(Icons.receipt)),
+              ],
+              selected: {_isDigital},
+              onSelectionChanged: (v) => setState(() => _isDigital = v.first),
             ),
             const SizedBox(height: 24),
             ElevatedButton(
