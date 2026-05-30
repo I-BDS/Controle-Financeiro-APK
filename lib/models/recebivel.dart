@@ -42,7 +42,7 @@ class Recebivel {
   factory Recebivel.fromJson(Map<String, dynamic> json) => Recebivel(
     id: json['id'],
     descricao: json['descricao'],
-    valor: json['valor'],
+    valor: double.tryParse(json['valor'].toString()) ?? 0.0,
     mes: json['mes'] ?? 1,
     ano: json['ano'] ?? DateTime.now().year,
     data: json['data'] != null ? DateTime.parse(json['data']) : null,

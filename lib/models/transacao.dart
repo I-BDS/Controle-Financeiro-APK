@@ -30,7 +30,7 @@ class Transacao {
   factory Transacao.fromJson(Map<String, dynamic> json) => Transacao(
     id: json['id'],
     descricao: json['descricao'],
-    valor: json['valor'],
+    valor: double.tryParse(json['valor'].toString()) ?? 0.0,
     isReceita: json['isReceita'],
     data: DateTime.parse(json['data']),
     grupoId: json['grupoId'],
