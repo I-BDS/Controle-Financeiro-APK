@@ -14,10 +14,10 @@ class RecebiveisScreen extends StatefulWidget {
   const RecebiveisScreen({super.key, this.onTransacaoChanged});
 
   @override
-  State<RecebiveisScreen> createState() => _RecebiveisScreenState();
+  State<RecebiveisScreen> createState() => RecebiveisScreenState();
 }
 
-class _RecebiveisScreenState extends State<RecebiveisScreen> {
+class RecebiveisScreenState extends State<RecebiveisScreen> {
   final _storage = StorageService.instance;
 
   int _mesInicio = DateTime.now().month;
@@ -40,6 +40,8 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
     _carregar();
   }
 
+  Future<void> reload() => _carregarPeriodo();
+
   @override
   void dispose() {
     _storage.removeListener(_onDataChanged);
@@ -52,6 +54,10 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
 
   Future<void> _carregar() async {
     setState(() {});
+  }
+
+  Future<void> _carregarPeriodo() async {
+    await _storage.carregarRecebiveisPeriodo(_mesInicio, _anoInicio, _mesFim, _anoFim);
   }
 
   int _toMonthCount(int mes, int ano) => ano * 12 + mes;
@@ -229,10 +235,12 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
 
   void _definirMesInicio(int mes, int ano) {
     setState(() { _mesInicio = mes; _anoInicio = ano; });
+    _carregarPeriodo();
   }
 
   void _definirMesFim(int mes, int ano) {
     setState(() { _mesFim = mes; _anoFim = ano; });
+    _carregarPeriodo();
   }
 
   void _mesAnterior() {
@@ -242,6 +250,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
       if (_mesFim == 1) { _mesFim = 12; _anoFim--; }
       else { _mesFim--; }
     });
+    _carregarPeriodo();
   }
 
   void _mesProximo() {
@@ -251,6 +260,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
       if (_mesFim == 12) { _mesFim = 1; _anoFim++; }
       else { _mesFim++; }
     });
+    _carregarPeriodo();
   }
 
   void _irParaMesAtual() {
@@ -261,6 +271,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
       _mesFim = agora.month;
       _anoFim = agora.year;
     });
+    _carregarPeriodo();
   }
 
   Future<void> _adicionar() async {
@@ -342,7 +353,7 @@ class _RecebiveisScreenState extends State<RecebiveisScreen> {
         child: const Icon(Icons.add),
       ),
       body: RefreshIndicator(
-        onRefresh: _carregar,
+        onRefresh: _carregarPeriodo,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [

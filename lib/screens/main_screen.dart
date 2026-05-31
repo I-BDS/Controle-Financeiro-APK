@@ -36,6 +36,7 @@ class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 1;
   final _analiseKey = GlobalKey<AnaliseScreenState>();
   final _homeKey = GlobalKey<HomeScreenState>();
+  final _recebiveisKey = GlobalKey<RecebiveisScreenState>();
   late final PageController _pageController;
 
   @override
@@ -57,12 +58,14 @@ class _MainScreenState extends State<MainScreen> {
       curve: Curves.easeInOut,
     );
     setState(() => _currentIndex = index);
+    if (index == 0) _recebiveisKey.currentState?.reload();
     if (index == 1) _homeKey.currentState?.reload();
     if (index == 2) _analiseKey.currentState?.reload();
   }
 
   void _onPageChanged(int index) {
     setState(() => _currentIndex = index);
+    if (index == 0) _recebiveisKey.currentState?.reload();
     if (index == 1) _homeKey.currentState?.reload();
     if (index == 2) _analiseKey.currentState?.reload();
   }
@@ -76,7 +79,7 @@ class _MainScreenState extends State<MainScreen> {
         physics: const PageScrollPhysics(),
         children: [
           KeepAliveWrapper(
-            child: RecebiveisScreen(onTransacaoChanged: _onTransacaoChanged),
+            child: RecebiveisScreen(key: _recebiveisKey, onTransacaoChanged: _onTransacaoChanged),
           ),
           KeepAliveWrapper(
             child: HomeScreen(

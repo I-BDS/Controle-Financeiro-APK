@@ -20,7 +20,7 @@ class HomeScreen extends StatefulWidget {
 class HomeScreenState extends State<HomeScreen> {
   final _storage = StorageService.instance;
 
-  Future<void> reload() => _carregar();
+  Future<void> reload() => _carregarPeriodo();
 
   int _mesSelecionado = DateTime.now().month;
   int _anoSelecionado = DateTime.now().year;
@@ -54,20 +54,28 @@ class HomeScreenState extends State<HomeScreen> {
     setState(() {});
   }
 
+  Future<void> _carregarPeriodo() async {
+    if (_usarFiltroData && _dataInicio != null && _dataFim != null) {
+      await _storage.carregarTransacoesPeriodo(_dataInicio!, _dataFim!);
+    } else {
+      await _storage.carregarTransacoesMesAno(_mesSelecionado, _anoSelecionado);
+    }
+  }
+
   List<Transacao> get _transacoesFiltradas {
     return _storage.transacoes.where((t) {
-      if (t.data.month != _mesSelecionado || t.data.year != _anoSelecionado) return false;
       if (_usarFiltroData) {
         if (_dataInicio != null && t.data.isBefore(_dataInicio!)) return false;
         if (_dataFim != null && t.data.isAfter(_dataFim!.add(const Duration(days: 1)))) return false;
+        return true;
       }
-      return true;
+      return t.data.month == _mesSelecionado && t.data.year == _anoSelecionado;
     }).toList();
   }
 
   double get _saldoTotal {
     double total = 0;
-    for (final t in _storage.transacoes) {
+    for (final t in _transacoesFiltradas) {
       total += t.isReceita ? t.valor : -t.valor;
     }
     return total;
@@ -75,24 +83,18 @@ class HomeScreenState extends State<HomeScreen> {
 
   void _mesAnterior() {
     setState(() {
-      if (_mesSelecionado == 1) {
-        _mesSelecionado = 12;
-        _anoSelecionado--;
-      } else {
-        _mesSelecionado--;
-      }
+      if (_mesSelecionado == 1) { _mesSelecionado = 12; _anoSelecionado--; }
+      else { _mesSelecionado--; }
     });
+    _carregarPeriodo();
   }
 
   void _mesProximo() {
     setState(() {
-      if (_mesSelecionado == 12) {
-        _mesSelecionado = 1;
-        _anoSelecionado++;
-      } else {
-        _mesSelecionado++;
-      }
+      if (_mesSelecionado == 12) { _mesSelecionado = 1; _anoSelecionado++; }
+      else { _mesSelecionado++; }
     });
+    _carregarPeriodo();
   }
 
   void _irParaMesAtual() {
@@ -101,6 +103,7 @@ class HomeScreenState extends State<HomeScreen> {
       _mesSelecionado = agora.month;
       _anoSelecionado = agora.year;
     });
+    _carregarPeriodo();
   }
 
   Future<void> _selecionarDataInicio() async {
@@ -110,7 +113,10 @@ class HomeScreenState extends State<HomeScreen> {
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
       );
-    if (picked != null) setState(() => _dataInicio = picked);
+    if (picked != null) {
+      setState(() => _dataInicio = picked);
+      if (_usarFiltroData) _carregarPeriodo();
+    }
   }
 
   Future<void> _selecionarDataFim() async {
@@ -121,7 +127,10 @@ class HomeScreenState extends State<HomeScreen> {
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
     );
-    if (picked != null) setState(() => _dataFim = picked);
+    if (picked != null) {
+      setState(() => _dataFim = picked);
+      if (_usarFiltroData) _carregarPeriodo();
+    }
   }
 
   Future<void> _remover(Transacao t) async {
@@ -189,7 +198,7 @@ class HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _carregar,
+        onRefresh: _carregarPeriodo,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -428,7 +437,10 @@ class HomeScreenState extends State<HomeScreen> {
     return Column(
       children: [
         InkWell(
-          onTap: () => setState(() => _usarFiltroData = !_usarFiltroData),
+          onTap: () {
+            setState(() => _usarFiltroData = !_usarFiltroData);
+            if (!_usarFiltroData) _carregarPeriodo();
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(

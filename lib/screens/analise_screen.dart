@@ -4,7 +4,9 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/transacao.dart';
 import '../models/grupo.dart';
+import '../models/recebivel.dart';
 import '../services/storage_service.dart';
+import '../services/supabase_service.dart';
 import '../helpers/format_util.dart';
 
 class AnaliseScreen extends StatefulWidget {
@@ -27,6 +29,9 @@ class AnaliseScreenState extends State<AnaliseScreen> {
   final Set<String> _gruposFiltro = {};
   bool _expandirRF = false;
 
+  List<Transacao> _transacoesAno = [];
+  List<Recebivel> _recebiveisAno = [];
+
   @override
   void initState() {
     super.initState();
@@ -48,16 +53,23 @@ class AnaliseScreenState extends State<AnaliseScreen> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final limite = prefs.getDouble(_limiteRFKey) ?? 30639.90;
-    if (mounted) {
-      setState(() {
-        _limiteRF = limite;
-      });
-    }
+    _limiteRF = prefs.getDouble(_limiteRFKey) ?? 30639.90;
+
+    _storage.analiseAno = _ano;
+    try {
+      if (_storage.storageMode == StorageMode.local) {
+        _transacoesAno = _storage.transacoes;
+        _recebiveisAno = _storage.recebiveis;
+      } else {
+        _transacoesAno = await SupabaseService.fetchTransacoesPorAno(_ano);
+        _recebiveisAno = await SupabaseService.fetchRecebiveisPorAno(_ano);
+      }
+    } catch (_) {}
+    if (mounted) setState(() {});
   }
 
   List<Transacao> get _transacoesFiltradas {
-    return _storage.transacoes.where((t) {
+    return _transacoesAno.where((t) {
       if (t.data.year != _ano) return false;
       if (_usarFiltroData) {
         if (_dataInicio != null && t.data.isBefore(_dataInicio!)) return false;
@@ -89,18 +101,12 @@ class AnaliseScreenState extends State<AnaliseScreen> {
   }
 
   bool get _temDados {
-    return _transacoesFiltradas.isNotEmpty ||
-        _storage.recebiveis.any((r) => r.ano == _ano && !r.recebido) ||
-        _storage.recebiveis.any((r) =>
-            r.recorrente &&
-            r.anoFim != null &&
-            r.ano <= _ano &&
-            r.anoFim! >= _ano);
+    return _transacoesFiltradas.isNotEmpty || _recebiveisAno.isNotEmpty;
   }
 
   double get _totalReceitasAno {
-    return _storage.transacoes
-        .where((t) => t.data.year == _ano && t.isReceita && (t.isDigital == true))
+    return _transacoesAno
+        .where((t) => t.isReceita && t.isDigital == true)
         .fold(0.0, (s, t) => s + t.valor);
   }
 
@@ -124,7 +130,7 @@ class AnaliseScreenState extends State<AnaliseScreen> {
       }
     }
 
-    for (final r in _storage.recebiveis.where((r) => !r.recebido)) {
+    for (final r in _recebiveisAno.where((r) => !r.recebido)) {
       if (r.ano > _ano) continue;
       if (r.ano < _ano && (!r.recorrente || r.mesFim == null)) continue;
       if (r.recorrente && r.anoFim != null && r.anoFim! < _ano) continue;
@@ -395,12 +401,12 @@ class AnaliseScreenState extends State<AnaliseScreen> {
       children: [
         IconButton(
           icon: const Icon(Icons.chevron_left),
-          onPressed: () => setState(() => _ano--),
+          onPressed: () { setState(() => _ano--); _load(); },
         ),
         Text(_ano.toString(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         IconButton(
           icon: const Icon(Icons.chevron_right),
-          onPressed: () => setState(() => _ano++),
+          onPressed: () { setState(() => _ano++); _load(); },
         ),
       ],
     );

@@ -16,6 +16,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final _storage = StorageService.instance;
   bool _expandido = false;
   final _urlController = TextEditingController();
   final _keyController = TextEditingController();
@@ -172,6 +173,210 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildStorageMode() {
+    final currentMode = _storage.storageMode;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.storage, color: currentMode == StorageMode.local ? Colors.orange : Colors.teal),
+                const SizedBox(width: 8),
+                const Text('Modo de Armazenamento', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<StorageMode>(
+              segments: const [
+                ButtonSegment(value: StorageMode.local, label: Text('Local'), icon: Icon(Icons.phone_android)),
+                ButtonSegment(value: StorageMode.supabase, label: Text('Supabase'), icon: Icon(Icons.cloud)),
+              ],
+              selected: {currentMode},
+              onSelectionChanged: _alterarModo,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              currentMode == StorageMode.local
+                  ? 'Dados salvos apenas neste dispositivo. Conexão com Supabase desativada.'
+                  : 'Dados sincronizados com Supabase na nuvem.',
+              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _alterarModo(Set<StorageMode> selected) async {
+    final novo = selected.first;
+    if (novo == _storage.storageMode) return;
+
+    if (novo == StorageMode.local) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Modo Local'),
+          content: const Text(
+            'Os dados atuais serão salvos localmente e a conexão com o Supabase será encerrada.\n\n'
+            'Você poderá voltar ao modo Supabase quando quiser.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirmar')),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+      final erro = await _storage.switchToLocal();
+      if (mounted) {
+        if (erro != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(erro), backgroundColor: Colors.red),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Modo local ativado!'), backgroundColor: Colors.green),
+          );
+        }
+        setState(() {});
+      }
+      return;
+    }
+
+    // switching to Supabase
+    final creds = await SupabaseService.carregarCredenciais();
+    if (creds['url']!.isEmpty || creds['anonKey']!.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Configure as credenciais do Supabase primeiro.'), backgroundColor: Colors.orange),
+        );
+        setState(() => _expandido = true);
+      }
+      return;
+    }
+
+    final temDados = _storage.transacoes.isNotEmpty || _storage.grupos.isNotEmpty || _storage.recebiveis.isNotEmpty;
+
+    if (!temDados) {
+      if (!mounted) return;
+      final opt = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Modo Supabase'),
+          content: const Text(
+            'Nenhum dado encontrado no aplicativo. O que deseja fazer?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'baixar'),
+              child: const Text('Baixar do banco'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, 'substituir'),
+              child: const Text('Atualizar com dados locais'),
+            ),
+          ],
+        ),
+      );
+      if (opt == null) return;
+
+      if (opt == 'substituir') {
+        if (!mounted) return;
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Tem certeza?'),
+            content: const Text(
+              'Isso substituirá todos os dados no banco pelos dados locais (que estão vazios), '
+              'efetivamente limpando o banco de dados.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sim')),
+            ],
+          ),
+        );
+        if (confirm != true) return;
+      }
+
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+
+      final String? erro;
+      if (opt == 'baixar') {
+        erro = await _storage.switchToSupabase(onlyLoad: true);
+      } else {
+        erro = await _storage.switchToSupabase();
+      }
+
+      if (mounted) {
+        Navigator.pop(context);
+        if (erro != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(erro), backgroundColor: Colors.red),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Modo Supabase ativado!'), backgroundColor: Colors.green),
+          );
+        }
+        setState(() {});
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sincronizar com Supabase'),
+        content: const Text(
+          'Os dados locais serão sincronizados com o banco:\n\n'
+          '• Novos dados serão enviados\n'
+          '• Dados existentes serão atualizados\n'
+          '• Dados removidos localmente serão removidos do banco\n\n'
+          'Após a sincronização, o armazenamento local será limpo '
+          'e o aplicativo passará a depender exclusivamente do banco.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sincronizar')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    final erro = await _storage.switchToSupabase();
+
+    if (mounted) {
+      Navigator.pop(context);
+      if (erro != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(erro), backgroundColor: Colors.red),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Modo Supabase ativado!'), backgroundColor: Colors.green),
+        );
+      }
+      setState(() {});
+    }
+  }
+
   @override
   void dispose() {
     _urlController.dispose();
@@ -219,6 +424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
+          _buildStorageMode(),
           const SizedBox(height: 16),
           Card(
             clipBehavior: Clip.antiAlias,

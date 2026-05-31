@@ -139,6 +139,32 @@ class SupabaseService {
         .toList();
   }
 
+  static Future<List<Transacao>> fetchTransacoesPorMesAno(int mes, int ano) async {
+    final inicio = DateTime(ano, mes, 1).toIso8601String();
+    final fim = DateTime(ano, mes + 1, 0, 23, 59, 59).toIso8601String();
+    final response = await _client!
+        .from('transacoes')
+        .select()
+        .gte('data', inicio)
+        .lte('data', fim)
+        .order('data', ascending: false);
+    return (response as List)
+        .map((e) => Transacao.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<List<Transacao>> fetchTransacoesPorPeriodo(DateTime inicio, DateTime fim) async {
+    final response = await _client!
+        .from('transacoes')
+        .select()
+        .gte('data', inicio.toIso8601String())
+        .lte('data', fim.toIso8601String())
+        .order('data', ascending: false);
+    return (response as List)
+        .map((e) => Transacao.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   // --- Grupos ---
 
   static Future<String?> upsertGrupo(Grupo g) async {
@@ -195,5 +221,43 @@ class SupabaseService {
     return (response as List)
         .map((e) => Recebivel.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  static Future<List<Recebivel>> fetchRecebiveisPorAno(int ano) async {
+    final response = await _client!
+        .from('recebiveis')
+        .select()
+        .gte('ano', ano)
+        .lte('ano', ano)
+        .order('ano', ascending: false);
+    return (response as List)
+        .map((e) => Recebivel.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<List<Recebivel>> fetchRecebiveisPorPeriodo(
+    int mesInicio, int anoInicio, int? mesFim, int? anoFim,
+  ) async {
+    final anoIni = anoInicio;
+    final anoF = (mesFim != null && anoFim != null) ? anoFim : anoInicio;
+    final response = await _client!
+        .from('recebiveis')
+        .select()
+        .gte('ano', anoIni)
+        .lte('ano', anoF)
+        .order('ano', ascending: false);
+    final todos = (response as List)
+        .map((e) => Recebivel.fromJson(e as Map<String, dynamic>))
+        .toList();
+    // filter in-memory to include recurring items overlapping the range
+    final inicio = mesInicio + anoInicio * 12;
+    final fim = (mesFim ?? mesInicio) + (anoFim ?? anoInicio) * 12;
+    return todos.where((r) {
+      final rInicio = r.mes + r.ano * 12;
+      final rFim = (r.recorrente && r.mesFim != null && r.anoFim != null)
+          ? r.mesFim! + r.anoFim! * 12
+          : rInicio;
+      return rInicio <= fim && rFim >= inicio;
+    }).toList();
   }
 }
