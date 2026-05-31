@@ -12,6 +12,7 @@ const String sqlMigration = '''
 DROP TABLE IF EXISTS transacoes CASCADE;
 DROP TABLE IF EXISTS grupos CASCADE;
 DROP TABLE IF EXISTS recebiveis CASCADE;
+DROP TABLE IF EXISTS contas_pagar CASCADE;
 
 -- Tabela de Grupos (Criada primeiro porque transacoes e recebiveis dependem dela)
 CREATE TABLE IF NOT EXISTS grupos (
@@ -51,16 +52,35 @@ CREATE TABLE IF NOT EXISTS recebiveis (
   "isDigital" BOOLEAN DEFAULT FALSE
 );
 
+-- Tabela de Contas a Pagar
+CREATE TABLE IF NOT EXISTS contas_pagar (
+  id TEXT PRIMARY KEY,
+  descricao TEXT NOT NULL,
+  valor DOUBLE PRECISION NOT NULL,
+  mes INTEGER NOT NULL,
+  ano INTEGER NOT NULL,
+  data TIMESTAMP,
+  "grupoId" TEXT,
+  pago BOOLEAN DEFAULT FALSE,
+  recorrente BOOLEAN DEFAULT FALSE,
+  "mesFim" INTEGER,
+  "anoFim" INTEGER,
+  "isDigital" BOOLEAN DEFAULT FALSE
+);
+
 -- Índices para consultas rápidas
 CREATE INDEX IF NOT EXISTS idx_transacoes_data ON transacoes(data);
 CREATE INDEX IF NOT EXISTS idx_transacoes_grupo ON transacoes("grupoId");
 CREATE INDEX IF NOT EXISTS idx_recebiveis_mes_ano ON recebiveis(mes, ano);
 CREATE INDEX IF NOT EXISTS idx_recebiveis_grupo ON recebiveis("grupoId");
+CREATE INDEX IF NOT EXISTS idx_contas_pagar_mes_ano ON contas_pagar(mes, ano);
+CREATE INDEX IF NOT EXISTS idx_contas_pagar_grupo ON contas_pagar("grupoId");
 
 -- Desativar RLS para permitir a sincronização direta do aplicativo nos testes
 ALTER TABLE transacoes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE grupos DISABLE ROW LEVEL SECURITY;
 ALTER TABLE recebiveis DISABLE ROW LEVEL SECURITY;
+ALTER TABLE contas_pagar DISABLE ROW LEVEL SECURITY;
 
 -- Adicionar colunas novas em tabelas existentes (execução segura mesmo se já existirem)
 ALTER TABLE transacoes ADD COLUMN IF NOT EXISTS "isDigital" BOOLEAN DEFAULT FALSE;
@@ -77,4 +97,5 @@ ALTER TABLE recebiveis ADD COLUMN IF NOT EXISTS "isDigital" BOOLEAN DEFAULT FALS
 ALTER PUBLICATION supabase_realtime ADD TABLE transacoes;
 ALTER PUBLICATION supabase_realtime ADD TABLE grupos;
 ALTER PUBLICATION supabase_realtime ADD TABLE recebiveis;
+ALTER PUBLICATION supabase_realtime ADD TABLE contas_pagar;
 ''';

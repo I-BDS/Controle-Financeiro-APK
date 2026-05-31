@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'analise_screen.dart';
 import 'recebiveis_screen.dart';
+import 'contas_pagar_screen.dart';
 
 class KeepAliveWrapper extends StatefulWidget {
   final Widget child;
@@ -33,10 +34,11 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 1;
+  int _currentIndex = 2;
   final _analiseKey = GlobalKey<AnaliseScreenState>();
   final _homeKey = GlobalKey<HomeScreenState>();
   final _recebiveisKey = GlobalKey<RecebiveisScreenState>();
+  final _contasPagarKey = GlobalKey<ContasPagarScreenState>();
   late final PageController _pageController;
 
   @override
@@ -59,15 +61,17 @@ class _MainScreenState extends State<MainScreen> {
     );
     setState(() => _currentIndex = index);
     if (index == 0) _recebiveisKey.currentState?.reload();
-    if (index == 1) _homeKey.currentState?.reload();
-    if (index == 2) _analiseKey.currentState?.reload();
+    if (index == 1) _contasPagarKey.currentState?.reload();
+    if (index == 2) _homeKey.currentState?.reload();
+    if (index == 3) _analiseKey.currentState?.reload();
   }
 
   void _onPageChanged(int index) {
     setState(() => _currentIndex = index);
     if (index == 0) _recebiveisKey.currentState?.reload();
-    if (index == 1) _homeKey.currentState?.reload();
-    if (index == 2) _analiseKey.currentState?.reload();
+    if (index == 1) _contasPagarKey.currentState?.reload();
+    if (index == 2) _homeKey.currentState?.reload();
+    if (index == 3) _analiseKey.currentState?.reload();
   }
 
   @override
@@ -80,6 +84,9 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           KeepAliveWrapper(
             child: RecebiveisScreen(key: _recebiveisKey, onTransacaoChanged: _onTransacaoChanged),
+          ),
+          KeepAliveWrapper(
+            child: ContasPagarScreen(key: _contasPagarKey, onTransacaoChanged: _onTransacaoChanged),
           ),
           KeepAliveWrapper(
             child: HomeScreen(
@@ -101,6 +108,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.receipt_long_outlined),
             selectedIcon: Icon(Icons.receipt_long),
             label: 'Recebíveis',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.payments_outlined),
+            selectedIcon: Icon(Icons.payments),
+            label: 'Contas',
           ),
           NavigationDestination(
             icon: Icon(Icons.account_balance_wallet_outlined),

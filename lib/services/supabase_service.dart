@@ -3,6 +3,7 @@ import 'package:supabase/supabase.dart';
 import '../models/transacao.dart';
 import '../models/grupo.dart';
 import '../models/recebivel.dart';
+import '../models/conta_pagar.dart';
 
 class SupabaseService {
   static SupabaseClient? _client;
@@ -77,7 +78,7 @@ class SupabaseService {
     disposeRealtime();
     _realtimeChannel = _client!.channel('realtime-all');
 
-    for (final table in ['transacoes', 'grupos', 'recebiveis']) {
+    for (final table in ['transacoes', 'grupos', 'recebiveis', 'contas_pagar']) {
       _realtimeChannel!.onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
@@ -233,6 +234,73 @@ class SupabaseService {
     return (response as List)
         .map((e) => Recebivel.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  // --- Contas a Pagar ---
+
+  static Future<String?> upsertContaPagar(ContaPagar c) async {
+    if (!isConfigured) return 'Supabase não configurado.';
+    try {
+      await _client!.from('contas_pagar').upsert(c.toJson());
+      return null;
+    } catch (e) {
+      return _tratarErro(e, 'contas_pagar');
+    }
+  }
+
+  static Future<String?> deleteContaPagar(String id) async {
+    if (!isConfigured) return 'Supabase não configurado.';
+    try {
+      await _client!.from('contas_pagar').delete().eq('id', id);
+      return null;
+    } catch (e) {
+      return _tratarErro(e, 'contas_pagar');
+    }
+  }
+
+  static Future<List<ContaPagar>> fetchAllContasPagar() async {
+    final response = await _client!.from('contas_pagar').select().order('ano', ascending: false);
+    return (response as List)
+        .map((e) => ContaPagar.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<List<ContaPagar>> fetchContasPagarPorAno(int ano) async {
+    final response = await _client!
+        .from('contas_pagar')
+        .select()
+        .gte('ano', ano)
+        .lte('ano', ano)
+        .order('ano', ascending: false);
+    return (response as List)
+        .map((e) => ContaPagar.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<List<ContaPagar>> fetchContasPagarPorPeriodo(
+    int mesInicio, int anoInicio, int? mesFim, int? anoFim,
+  ) async {
+    final anoIni = anoInicio;
+    final anoF = (mesFim != null && anoFim != null) ? anoFim : anoInicio;
+    final response = await _client!
+        .from('contas_pagar')
+        .select()
+        .gte('ano', anoIni)
+        .lte('ano', anoF)
+        .order('ano', ascending: false);
+    final todos = (response as List)
+        .map((e) => ContaPagar.fromJson(e as Map<String, dynamic>))
+        .toList();
+    // filter in-memory to include recurring items overlapping the range
+    final inicio = mesInicio + anoInicio * 12;
+    final fim = (mesFim ?? mesInicio) + (anoFim ?? anoInicio) * 12;
+    return todos.where((c) {
+      final cInicio = c.mes + c.ano * 12;
+      final cFim = (c.recorrente && c.mesFim != null && c.anoFim != null)
+          ? c.mesFim! + c.anoFim! * 12
+          : cInicio;
+      return cInicio <= fim && cFim >= inicio;
+    }).toList();
   }
 
   static Future<List<Recebivel>> fetchRecebiveisPorPeriodo(

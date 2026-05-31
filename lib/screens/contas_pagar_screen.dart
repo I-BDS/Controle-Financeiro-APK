@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../models/recebivel.dart';
+import '../models/conta_pagar.dart';
 import '../models/transacao.dart';
 import '../models/grupo.dart';
 import '../services/storage_service.dart';
-import 'add_recebivel_screen.dart';
+import 'add_conta_pagar_screen.dart';
 import 'grupos_screen.dart';
 import '../helpers/format_util.dart';
 
-class RecebiveisScreen extends StatefulWidget {
+class ContasPagarScreen extends StatefulWidget {
   final VoidCallback? onTransacaoChanged;
 
-  const RecebiveisScreen({super.key, this.onTransacaoChanged});
+  const ContasPagarScreen({super.key, this.onTransacaoChanged});
 
   @override
-  State<RecebiveisScreen> createState() => RecebiveisScreenState();
+  State<ContasPagarScreen> createState() => ContasPagarScreenState();
 }
 
-class RecebiveisScreenState extends State<RecebiveisScreen> {
+class ContasPagarScreenState extends State<ContasPagarScreen> {
   final _storage = StorageService.instance;
 
   int _mesInicio = DateTime.now().month;
@@ -57,7 +57,7 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
   }
 
   Future<void> _carregarPeriodo() async {
-    await _storage.carregarRecebiveisPeriodo(_mesInicio, _anoInicio, _mesFim, _anoFim);
+    await _storage.carregarContasPagarPeriodo(_mesInicio, _anoInicio, _mesFim, _anoFim);
   }
 
   int _toMonthCount(int mes, int ano) => ano * 12 + mes;
@@ -65,27 +65,27 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
   (int, int) _fromMonthCount(int count) =>
       ((count - 1) % 12 + 1, (count - 1) ~/ 12);
 
-  bool _isInPeriod(Recebivel r) {
+  bool _isInPeriod(ContaPagar c) {
     final targetInicio = _toMonthCount(_mesInicio, _anoInicio);
     final targetFim = _toMonthCount(_mesFim, _anoFim);
-    final recInicio = _toMonthCount(r.mes, r.ano);
-    final recFim = r.recorrente && r.mesFim != null && r.anoFim != null
-        ? _toMonthCount(r.mesFim!, r.anoFim!)
-        : recInicio;
-    return recInicio <= targetFim && recFim >= targetInicio;
+    final cInicio = _toMonthCount(c.mes, c.ano);
+    final cFim = c.recorrente && c.mesFim != null && c.anoFim != null
+        ? _toMonthCount(c.mesFim!, c.anoFim!)
+        : cInicio;
+    return cInicio <= targetFim && cFim >= targetInicio;
   }
 
-  List<Recebivel> get _recebiveisFiltrados {
-    return _storage.recebiveis.where((r) {
+  List<ContaPagar> get _contasFiltradas {
+    return _storage.contasPagar.where((c) {
       if (_filtroNome.isNotEmpty &&
-          !r.descricao.toLowerCase().contains(_filtroNome.toLowerCase())) {
+          !c.descricao.toLowerCase().contains(_filtroNome.toLowerCase())) {
         return false;
       }
       if (_filtroGrupos.isNotEmpty &&
-          (r.grupoId == null || !_filtroGrupos.contains(r.grupoId))) {
+          (c.grupoId == null || !_filtroGrupos.contains(c.grupoId))) {
         return false;
       }
-      return _isInPeriod(r);
+      return _isInPeriod(c);
     }).toList()
       ..sort((a, b) {
         if (a.data != null && b.data != null) return a.data!.compareTo(b.data!);
@@ -95,20 +95,20 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
       });
   }
 
-  double get _totalPendente => _recebiveisFiltrados
-      .where((r) => !r.recebido)
-      .fold(0.0, (s, r) => s + r.valor);
-  double get _totalRecebido => _recebiveisFiltrados
-      .where((r) => r.recebido)
-      .fold(0.0, (s, r) => s + r.valor);
+  double get _totalPendente => _contasFiltradas
+      .where((c) => !c.pago)
+      .fold(0.0, (s, c) => s + c.valor);
+  double get _totalPago => _contasFiltradas
+      .where((c) => c.pago)
+      .fold(0.0, (s, c) => s + c.valor);
 
-  Future<void> _marcarRecebido(Recebivel r) async {
-    if (r.recebido) {
+  Future<void> _marcarPago(ContaPagar c) async {
+    if (c.pago) {
       final remover = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Desmarcar recebimento'),
-          content: Text('Deseja remover "${r.descricao}" (R\$ ${formatBRL(r.valor)}) dos lançamentos da receita no saldo total?'),
+          title: const Text('Desmarcar pagamento'),
+          content: Text('Deseja remover "${c.descricao}" (R\$ ${formatBRL(c.valor)}) dos lançamentos da despesa no saldo total?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -125,15 +125,15 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
 
       if (remover) {
         final transacoes = _storage.transacoes;
-        final match = transacoes.where((t) => t.recebivelId == r.id).toList();
+        final match = transacoes.where((t) => t.recebivelId == c.id).toList();
         for (final t in match) {
           await _storage.removerTransacao(t.id);
         }
       }
       widget.onTransacaoChanged?.call();
 
-      await _storage.removerRecebivel(r.id);
-      await _tentarMesclarRecorrente(r);
+      await _storage.removerContaPagar(c.id);
+      await _tentarMesclarRecorrente(c);
       _carregar();
       return;
     }
@@ -141,16 +141,16 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Recebimento confirmado'),
-        content: Text('Deseja lançar "${r.descricao}" (R\$ ${formatBRL(r.valor)}) como receita na carteira?'),
+        title: const Text('Pagamento confirmado'),
+        content: Text('Deseja lançar "${c.descricao}" (R\$ ${formatBRL(c.valor)}) como despesa na carteira?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Só marcar recebido'),
+            child: const Text('Só marcar pago'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Lançar como receita'),
+            child: const Text('Lançar como despesa'),
           ),
         ],
       ),
@@ -159,7 +159,7 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
 
     if (confirm) {
       if (!mounted) return;
-      bool isDigital = r.isDigital ?? true;
+      bool isDigital = c.isDigital ?? true;
       final tipoDialog = await showDialog<bool>(
         context: context,
         builder: (ctx) => StatefulBuilder(
@@ -170,7 +170,7 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Este recebimento é digital ou papel?'),
+                  const Text('Este pagamento é digital ou papel?'),
                   const SizedBox(height: 16),
                   SegmentedButton<bool>(
                     segments: const [
@@ -198,74 +198,74 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
 
       isDigital = tipoDialog;
 
-      if (r.recorrente && r.mesFim != null && r.anoFim != null) {
-        await _marcarRecorrentePago(r, isDigital, true);
+      if (c.recorrente && c.mesFim != null && c.anoFim != null) {
+        await _marcarRecorrentePago(c, isDigital, true);
       } else {
         final transacao = Transacao(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
-          descricao: r.descricao,
-          valor: r.valor,
-          isReceita: true,
-          data: r.data ?? DateTime.now(),
-          grupoId: r.grupoId,
-          recebivelId: r.id,
+          descricao: c.descricao,
+          valor: c.valor,
+          isReceita: false,
+          data: c.data ?? DateTime.now(),
+          grupoId: c.grupoId,
+          recebivelId: c.id,
           isDigital: isDigital,
         );
         await _storage.adicionarTransacao(transacao);
 
-        final atualizado = Recebivel(
-          id: r.id, descricao: r.descricao, valor: r.valor,
-          mes: r.mes, ano: r.ano, data: r.data, grupoId: r.grupoId,
-          recebido: true, recorrente: false,
+        final atualizado = ContaPagar(
+          id: c.id, descricao: c.descricao, valor: c.valor,
+          mes: c.mes, ano: c.ano, data: c.data, grupoId: c.grupoId,
+          pago: true, recorrente: false,
           mesFim: null, anoFim: null, isDigital: isDigital,
         );
-        await _storage.atualizarRecebivel(atualizado);
+        await _storage.atualizarContaPagar(atualizado);
       }
       _carregar();
       return;
     }
     widget.onTransacaoChanged?.call();
 
-    if (r.recorrente && r.mesFim != null && r.anoFim != null) {
-      await _marcarRecorrentePago(r, r.isDigital ?? true, false);
+    if (c.recorrente && c.mesFim != null && c.anoFim != null) {
+      await _marcarRecorrentePago(c, c.isDigital ?? true, false);
     } else {
-      final atualizado = Recebivel(
-        id: r.id, descricao: r.descricao, valor: r.valor,
-        mes: r.mes, ano: r.ano, data: r.data, grupoId: r.grupoId,
-        recebido: true, recorrente: false,
-        mesFim: null, anoFim: null, isDigital: r.isDigital,
+      final atualizado = ContaPagar(
+        id: c.id, descricao: c.descricao, valor: c.valor,
+        mes: c.mes, ano: c.ano, data: c.data, grupoId: c.grupoId,
+        pago: true, recorrente: false,
+        mesFim: null, anoFim: null, isDigital: c.isDigital,
       );
-      await _storage.atualizarRecebivel(atualizado);
+      await _storage.atualizarContaPagar(atualizado);
     }
     _carregar();
   }
 
-  Future<void> _marcarRecorrentePago(Recebivel r, bool isDigital, bool criarTransacao) async {
+  Future<void> _marcarRecorrentePago(ContaPagar c, bool isDigital, bool criarTransacao) async {
     final targetMes = _mesInicio;
     final targetAno = _anoInicio;
 
-    final paidRecord = Recebivel(
+    final paidRecord = ContaPagar(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      descricao: r.descricao,
-      valor: r.valor,
+      descricao: c.descricao,
+      valor: c.valor,
       mes: targetMes,
       ano: targetAno,
-      data: r.data,
-      grupoId: r.grupoId,
-      recebido: true,
+      data: c.data,
+      grupoId: c.grupoId,
+      pago: true,
       recorrente: false,
       isDigital: isDigital,
     );
-    await _storage.adicionarRecebivel(paidRecord);
+    await _storage.adicionarContaPagar(paidRecord);
 
     if (criarTransacao) {
       final transacao = Transacao(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        descricao: r.descricao,
-        valor: r.valor,
-        isReceita: true,
-        data: r.data ?? DateTime(targetAno, targetMes),
-        grupoId: r.grupoId,
+        descricao: c.descricao,
+        valor: c.valor,
+        isReceita: false,
+        data: c.data ?? DateTime(targetAno, targetMes),
+        grupoId: c.grupoId,
         recebivelId: paidRecord.id,
         isDigital: isDigital,
       );
@@ -273,55 +273,55 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
     }
     widget.onTransacaoChanged?.call();
 
-    final startCount = _toMonthCount(r.mes, r.ano);
-    final endCount = _toMonthCount(r.mesFim!, r.anoFim!);
+    final startCount = _toMonthCount(c.mes, c.ano);
+    final endCount = _toMonthCount(c.mesFim!, c.anoFim!);
     final targetCount = _toMonthCount(targetMes, targetAno);
 
     if (startCount == endCount) {
-      await _storage.removerRecebivel(r.id);
+      await _storage.removerContaPagar(c.id);
     } else if (targetCount == startCount) {
       final next = _fromMonthCount(startCount + 1);
-      final updated = Recebivel(
-        id: r.id, descricao: r.descricao, valor: r.valor,
-        mes: next.$1, ano: next.$2, data: r.data, grupoId: r.grupoId,
-        recebido: false, recorrente: true,
-        mesFim: r.mesFim, anoFim: r.anoFim, isDigital: r.isDigital,
+      final updated = ContaPagar(
+        id: c.id, descricao: c.descricao, valor: c.valor,
+        mes: next.$1, ano: next.$2, data: c.data, grupoId: c.grupoId,
+        pago: false, recorrente: true,
+        mesFim: c.mesFim, anoFim: c.anoFim, isDigital: c.isDigital,
       );
-      await _storage.atualizarRecebivel(updated);
+      await _storage.atualizarContaPagar(updated);
     } else if (targetCount == endCount) {
       final prev = _fromMonthCount(endCount - 1);
-      final updated = Recebivel(
-        id: r.id, descricao: r.descricao, valor: r.valor,
-        mes: r.mes, ano: r.ano, data: r.data, grupoId: r.grupoId,
-        recebido: false, recorrente: true,
-        mesFim: prev.$1, anoFim: prev.$2, isDigital: r.isDigital,
+      final updated = ContaPagar(
+        id: c.id, descricao: c.descricao, valor: c.valor,
+        mes: c.mes, ano: c.ano, data: c.data, grupoId: c.grupoId,
+        pago: false, recorrente: true,
+        mesFim: prev.$1, anoFim: prev.$2, isDigital: c.isDigital,
       );
-      await _storage.atualizarRecebivel(updated);
+      await _storage.atualizarContaPagar(updated);
     } else {
       final prev = _fromMonthCount(targetCount - 1);
-      final truncated = Recebivel(
-        id: r.id, descricao: r.descricao, valor: r.valor,
-        mes: r.mes, ano: r.ano, data: r.data, grupoId: r.grupoId,
-        recebido: false, recorrente: true,
-        mesFim: prev.$1, anoFim: prev.$2, isDigital: r.isDigital,
+      final truncated = ContaPagar(
+        id: c.id, descricao: c.descricao, valor: c.valor,
+        mes: c.mes, ano: c.ano, data: c.data, grupoId: c.grupoId,
+        pago: false, recorrente: true,
+        mesFim: prev.$1, anoFim: prev.$2, isDigital: c.isDigital,
       );
-      await _storage.atualizarRecebivel(truncated);
+      await _storage.atualizarContaPagar(truncated);
 
       final next = _fromMonthCount(targetCount + 1);
-      final tail = Recebivel(
-        id: '${r.id}_${next.$1}_${next.$2}',
-        descricao: r.descricao, valor: r.valor,
-        mes: next.$1, ano: next.$2, data: r.data, grupoId: r.grupoId,
-        recebido: false, recorrente: true,
-        mesFim: r.mesFim, anoFim: r.anoFim, isDigital: r.isDigital,
+      final tail = ContaPagar(
+        id: '${c.id}_${next.$1}_${next.$2}',
+        descricao: c.descricao, valor: c.valor,
+        mes: next.$1, ano: next.$2, data: c.data, grupoId: c.grupoId,
+        pago: false, recorrente: true,
+        mesFim: c.mesFim, anoFim: c.anoFim, isDigital: c.isDigital,
       );
-      await _storage.adicionarRecebivel(tail);
+      await _storage.adicionarContaPagar(tail);
     }
   }
 
-  Future<void> _tentarMesclarRecorrente(Recebivel pago) async {
+  Future<void> _tentarMesclarRecorrente(ContaPagar pago) async {
     final targetCount = _toMonthCount(pago.mes, pago.ano);
-    final adjacentes = _storage.recebiveis.where((other) =>
+    final adjacentes = _storage.contasPagar.where((other) =>
       other.id != pago.id &&
       other.descricao == pago.descricao &&
       other.valor == pago.valor &&
@@ -330,8 +330,8 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
       other.anoFim != null
     ).toList();
 
-    Recebivel? antes;
-    Recebivel? depois;
+    ContaPagar? antes;
+    ContaPagar? depois;
     for (final adj in adjacentes) {
       final adjEnd = _toMonthCount(adj.mesFim!, adj.anoFim!);
       if (adjEnd == targetCount - 1) antes = adj;
@@ -340,30 +340,30 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
     }
 
     if (antes != null && depois != null) {
-      final merged = Recebivel(
+      final merged = ContaPagar(
         id: antes.id, descricao: antes.descricao, valor: antes.valor,
         mes: antes.mes, ano: antes.ano, data: antes.data, grupoId: antes.grupoId,
-        recebido: false, recorrente: true,
+        pago: false, recorrente: true,
         mesFim: depois.mesFim, anoFim: depois.anoFim, isDigital: antes.isDigital,
       );
-      await _storage.atualizarRecebivel(merged);
-      await _storage.removerRecebivel(depois.id);
+      await _storage.atualizarContaPagar(merged);
+      await _storage.removerContaPagar(depois.id);
     } else if (antes != null) {
-      final merged = Recebivel(
+      final merged = ContaPagar(
         id: antes.id, descricao: antes.descricao, valor: antes.valor,
         mes: antes.mes, ano: antes.ano, data: antes.data, grupoId: antes.grupoId,
-        recebido: false, recorrente: true,
+        pago: false, recorrente: true,
         mesFim: pago.mes, anoFim: pago.ano, isDigital: antes.isDigital,
       );
-      await _storage.atualizarRecebivel(merged);
+      await _storage.atualizarContaPagar(merged);
     } else if (depois != null) {
-      final merged = Recebivel(
+      final merged = ContaPagar(
         id: depois.id, descricao: depois.descricao, valor: depois.valor,
         mes: pago.mes, ano: pago.ano, data: depois.data, grupoId: depois.grupoId,
-        recebido: false, recorrente: true,
+        pago: false, recorrente: true,
         mesFim: depois.mesFim, anoFim: depois.anoFim, isDigital: depois.isDigital,
       );
-      await _storage.atualizarRecebivel(merged);
+      await _storage.atualizarContaPagar(merged);
     }
   }
 
@@ -410,24 +410,24 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
 
   Future<void> _adicionar() async {
     await Navigator.push(
-      context, MaterialPageRoute(builder: (_) => const AddRecebivelScreen()),
+      context, MaterialPageRoute(builder: (_) => const AddContaPagarScreen()),
     );
     _carregar();
   }
 
-  Future<void> _editar(Recebivel r) async {
+  Future<void> _editar(ContaPagar c) async {
     await Navigator.push(
-      context, MaterialPageRoute(builder: (_) => AddRecebivelScreen(recebivel: r)),
+      context, MaterialPageRoute(builder: (_) => AddContaPagarScreen(contaPagar: c)),
     );
     _carregar();
   }
 
-  Future<void> _remover(Recebivel r) async {
+  Future<void> _remover(ContaPagar c) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remover recebível'),
-        content: Text('Excluir "${r.descricao}"?'),
+        title: const Text('Remover conta a pagar'),
+        content: Text('Excluir "${c.descricao}"?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
           TextButton(
@@ -439,7 +439,7 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
       ),
     );
     if (confirm == true) {
-      await _storage.removerRecebivel(r.id);
+      await _storage.removerContaPagar(c.id);
       _carregar();
     }
   }
@@ -447,8 +447,8 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
   Future<void> _abrirSeletorGrupos() async {
     final result = await showDialog<Set<String>>(
       context: context,
-      builder: (ctx) => _SeletorGruposRecebivel(
-        grupos: _storage.grupos.where((g) => g.isRecebivel).toList(),
+      builder: (ctx) => _SeletorGruposContaPagar(
+        grupos: _storage.grupos.where((g) => !g.isReceita && !g.isRecebivel).toList(),
         selecionados: Set<String>.from(_filtroGrupos),
       ),
     );
@@ -458,12 +458,12 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final lista = _recebiveisFiltrados;
+    final lista = _contasFiltradas;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Recebíveis',
+          'Contas a Pagar',
           style: TextStyle(fontWeight: FontWeight.w200, letterSpacing: 2.0, fontSize: 22),
         ),
         centerTitle: true,
@@ -484,6 +484,7 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _adicionar,
+        backgroundColor: Colors.red,
         child: const Icon(Icons.add),
       ),
       body: RefreshIndicator(
@@ -506,7 +507,7 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
                       Icon(Icons.receipt_long_outlined, size: 48, color: Colors.grey[300]),
                       const SizedBox(height: 8),
                       Text(
-                        'Nenhum recebível encontrado.',
+                        'Nenhuma conta a pagar encontrada.',
                         style: TextStyle(fontSize: 14, color: Colors.grey[500]),
                       ),
                     ],
@@ -520,13 +521,13 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      color: isDark ? Colors.green.shade800 : Colors.green.shade100,
+                      color: isDark ? Colors.red.shade800 : Colors.red.shade100,
                       child: Text(
                         '${_meses[_mesInicio - 1]} $_anoInicio — ${_meses[_mesFim - 1]} $_anoFim',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : null),
                       ),
                     ),
-                    ...lista.map((r) => _buildRecebivelTile(r)),
+                    ...lista.map((c) => _buildContaPagarTile(c)),
                   ],
                 ),
               ),
@@ -540,21 +541,21 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
       elevation: 4,
-      color: isDark ? Colors.green.shade900 : Colors.green.shade50,
+      color: isDark ? Colors.red.shade900 : Colors.red.shade50,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Text('Total a Receber', style: TextStyle(fontSize: 16, color: isDark ? Colors.grey[400] : Colors.grey[600])),
+            Text('Total a Pagar', style: TextStyle(fontSize: 16, color: isDark ? Colors.grey[400] : Colors.grey[600])),
             const SizedBox(height: 8),
             Text(
               'R\$ ${formatBRL(_totalPendente)}',
-              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green),
+              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.red),
             ),
-            if (_totalRecebido > 0) ...[
+            if (_totalPago > 0) ...[
               const SizedBox(height: 4),
               Text(
-                'Recebido: R\$ ${formatBRL(_totalRecebido)}',
+                'Pago: R\$ ${formatBRL(_totalPago)}',
                 style: TextStyle(fontSize: 14, color: isDark ? Colors.grey[400] : Colors.grey[500]),
               ),
             ],
@@ -741,47 +742,47 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
     );
   }
 
-  Widget _buildRecebivelTile(Recebivel r) {
-    final nomeGrupo = _storage.getNomeGrupo(r.grupoId);
-    final periodoStr = r.recorrente && r.mesFim != null && r.anoFim != null
-        ? '${_meses[r.mes - 1]} ${r.ano} — ${_meses[r.mesFim! - 1]} ${r.anoFim}'
+  Widget _buildContaPagarTile(ContaPagar c) {
+    final nomeGrupo = _storage.getNomeGrupo(c.grupoId);
+    final periodoStr = c.recorrente && c.mesFim != null && c.anoFim != null
+        ? '${_meses[c.mes - 1]} ${c.ano} — ${_meses[c.mesFim! - 1]} ${c.anoFim}'
         : null;
 
     return Opacity(
-      opacity: r.recebido ? 0.5 : 1.0,
+      opacity: c.pago ? 0.5 : 1.0,
       child: ListTile(
         dense: true,
         leading: InkWell(
-          onTap: () => _marcarRecebido(r),
+          onTap: () => _marcarPago(c),
           child: Container(
             width: 24,
             height: 24,
             decoration: BoxDecoration(
-              color: r.recebido ? Colors.green : Colors.transparent,
+              color: c.pago ? Colors.red : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
               border: Border.all(
-                color: r.recebido ? Colors.green : Colors.grey.shade400,
+                color: c.pago ? Colors.red : Colors.grey.shade400,
                 width: 2,
               ),
             ),
-            child: r.recebido
+            child: c.pago
                 ? const Icon(Icons.check, size: 16, color: Colors.white)
                 : null,
           ),
         ),
         title: Text(
-          r.descricao,
+          c.descricao,
           style: TextStyle(
             fontSize: 14,
-            decoration: r.recebido ? TextDecoration.lineThrough : null,
+            decoration: c.pago ? TextDecoration.lineThrough : null,
           ),
         ),
         subtitle: Text(
           [
             ?nomeGrupo,
-            if (r.data != null) DateFormat('dd/MM').format(r.data!),
+            if (c.data != null) DateFormat('dd/MM').format(c.data!),
             ?periodoStr,
-            if (r.isDigital != null) (r.isDigital! ? 'Digital' : 'Dinheiro'),
+            if (c.isDigital != null) (c.isDigital! ? 'Digital' : 'Dinheiro'),
           ].join(' • '),
           style: const TextStyle(fontSize: 12),
         ),
@@ -789,9 +790,9 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '+R\$ ${formatBRL(r.valor)}',
+              '-R\$ ${formatBRL(c.valor)}',
               style: TextStyle(
-                color: r.recebido ? Colors.grey : Colors.green,
+                color: c.pago ? Colors.grey : Colors.red,
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
               ),
@@ -799,8 +800,8 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert, size: 18, color: Colors.grey[500]),
               onSelected: (v) {
-                if (v == 'edit') _editar(r);
-                if (v == 'delete') _remover(r);
+                if (v == 'edit') _editar(c);
+                if (v == 'delete') _remover(c);
               },
               itemBuilder: (_) => [
                 const PopupMenuItem(value: 'edit', child: Row(
@@ -818,17 +819,17 @@ class RecebiveisScreenState extends State<RecebiveisScreen> {
   }
 }
 
-class _SeletorGruposRecebivel extends StatefulWidget {
+class _SeletorGruposContaPagar extends StatefulWidget {
   final List<Grupo> grupos;
   final Set<String> selecionados;
 
-  const _SeletorGruposRecebivel({required this.grupos, required this.selecionados});
+  const _SeletorGruposContaPagar({required this.grupos, required this.selecionados});
 
   @override
-  State<_SeletorGruposRecebivel> createState() => _SeletorGruposRecebivelState();
+  State<_SeletorGruposContaPagar> createState() => _SeletorGruposContaPagarState();
 }
 
-class _SeletorGruposRecebivelState extends State<_SeletorGruposRecebivel> {
+class _SeletorGruposContaPagarState extends State<_SeletorGruposContaPagar> {
   late Set<String> _selecionados;
 
   @override
@@ -853,7 +854,7 @@ class _SeletorGruposRecebivelState extends State<_SeletorGruposRecebivel> {
             }),
             title: Row(
               children: [
-                Icon(g.icone, size: 20, color: Colors.green),
+                Icon(g.icone, size: 20, color: Colors.red),
                 const SizedBox(width: 8),
                 Text(g.nome),
               ],

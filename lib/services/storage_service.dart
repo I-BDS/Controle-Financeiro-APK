@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/transacao.dart';
 import '../models/grupo.dart';
 import '../models/recebivel.dart';
+import '../models/conta_pagar.dart';
 import 'local_storage_service.dart';
 import 'supabase_service.dart';
 
@@ -25,13 +26,21 @@ class StorageService extends ChangeNotifier {
   int? recebiveisAnoFim;
   int? analiseAno;
 
+  // Contas a Pagar period tracking
+  int? contasPagarMesInicio;
+  int? contasPagarAnoInicio;
+  int? contasPagarMesFim;
+  int? contasPagarAnoFim;
+
   List<Transacao> _transacoes = [];
   List<Grupo> _grupos = [];
   List<Recebivel> _recebiveis = [];
+  List<ContaPagar> _contasPagar = [];
 
   List<Transacao> get transacoes => _transacoes;
   List<Grupo> get grupos => _grupos;
   List<Recebivel> get recebiveis => _recebiveis;
+  List<ContaPagar> get contasPagar => _contasPagar;
 
   Future<String?> init() async {
     await _initMode();
@@ -70,6 +79,12 @@ class StorageService extends ChangeNotifier {
         recebiveisMesFim, recebiveisAnoFim,
       );
     }
+    if (contasPagarMesInicio != null) {
+      await carregarContasPagarPeriodo(
+        contasPagarMesInicio!, contasPagarAnoInicio!,
+        contasPagarMesFim, contasPagarAnoFim,
+      );
+    }
     try {
       _grupos = await SupabaseService.fetchGrupos();
     } catch (_) {}
@@ -84,6 +99,7 @@ class StorageService extends ChangeNotifier {
         _grupos = await LocalStorageService.carregarGrupos();
         _transacoes = await LocalStorageService.carregarTransacoes();
         _recebiveis = await LocalStorageService.carregarRecebiveis();
+        _contasPagar = await LocalStorageService.carregarContasPagar();
       } else {
         _grupos = await SupabaseService.fetchGrupos();
         // Load current month as default
@@ -94,6 +110,9 @@ class StorageService extends ChangeNotifier {
         recebiveisMesInicio = now.month;
         recebiveisAnoInicio = now.year;
         _recebiveis = await SupabaseService.fetchRecebiveisPorPeriodo(now.month, now.year, null, null);
+        contasPagarMesInicio = now.month;
+        contasPagarAnoInicio = now.year;
+        _contasPagar = await SupabaseService.fetchContasPagarPorPeriodo(now.month, now.year, null, null);
       }
       notifyListeners();
     } catch (_) {}
@@ -165,6 +184,38 @@ class StorageService extends ChangeNotifier {
         _recebiveis = await LocalStorageService.carregarRecebiveis();
       } else {
         _recebiveis = await SupabaseService.fetchRecebiveisPorAno(ano);
+      }
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  // --- Contas a Pagar period load ---
+
+  Future<void> carregarContasPagarPeriodo(
+    int mesInicio, int anoInicio, int? mesFim, int? anoFim,
+  ) async {
+    contasPagarMesInicio = mesInicio;
+    contasPagarAnoInicio = anoInicio;
+    contasPagarMesFim = mesFim;
+    contasPagarAnoFim = anoFim;
+    try {
+      if (_storageMode == StorageMode.local) {
+        _contasPagar = await LocalStorageService.carregarContasPagar();
+      } else {
+        _contasPagar = await SupabaseService.fetchContasPagarPorPeriodo(mesInicio, anoInicio, mesFim, anoFim);
+      }
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> carregarContasPagarAno(int ano) async {
+    contasPagarMesInicio = null;
+    contasPagarAnoInicio = ano;
+    try {
+      if (_storageMode == StorageMode.local) {
+        _contasPagar = await LocalStorageService.carregarContasPagar();
+      } else {
+        _contasPagar = await SupabaseService.fetchContasPagarPorAno(ano);
       }
       notifyListeners();
     } catch (_) {}
@@ -349,6 +400,62 @@ class StorageService extends ChangeNotifier {
     return erro;
   }
 
+  // --- CRUD Contas a Pagar ---
+
+  Future<String?> adicionarContaPagar(ContaPagar c) async {
+    if (_storageMode == StorageMode.local) {
+      final list = await LocalStorageService.carregarContasPagar();
+      list.insert(0, c);
+      await LocalStorageService.salvarContasPagar(list);
+      _contasPagar.insert(0, c);
+      notifyListeners();
+      return null;
+    }
+    final erro = await SupabaseService.upsertContaPagar(c);
+    if (erro == null) {
+      _contasPagar.insert(0, c);
+      notifyListeners();
+    }
+    return erro;
+  }
+
+  Future<String?> atualizarContaPagar(ContaPagar c) async {
+    if (_storageMode == StorageMode.local) {
+      final list = await LocalStorageService.carregarContasPagar();
+      final idx = list.indexWhere((cp) => cp.id == c.id);
+      if (idx >= 0) list[idx] = c;
+      await LocalStorageService.salvarContasPagar(list);
+      final idx2 = _contasPagar.indexWhere((cp) => cp.id == c.id);
+      if (idx2 >= 0) _contasPagar[idx2] = c;
+      notifyListeners();
+      return null;
+    }
+    final erro = await SupabaseService.upsertContaPagar(c);
+    if (erro == null) {
+      final idx = _contasPagar.indexWhere((cp) => cp.id == c.id);
+      if (idx >= 0) _contasPagar[idx] = c;
+      notifyListeners();
+    }
+    return erro;
+  }
+
+  Future<String?> removerContaPagar(String id) async {
+    if (_storageMode == StorageMode.local) {
+      final list = await LocalStorageService.carregarContasPagar();
+      list.removeWhere((c) => c.id == id);
+      await LocalStorageService.salvarContasPagar(list);
+      _contasPagar.removeWhere((c) => c.id == id);
+      notifyListeners();
+      return null;
+    }
+    final erro = await SupabaseService.deleteContaPagar(id);
+    if (erro == null) {
+      _contasPagar.removeWhere((c) => c.id == id);
+      notifyListeners();
+    }
+    return erro;
+  }
+
   // --- Mode Switching ---
 
   Future<String?> switchToLocal() async {
@@ -466,6 +573,26 @@ class StorageService extends ChangeNotifier {
         } catch (_) {}
         for (final r in _recebiveis) {
           final e = await SupabaseService.upsertRecebivel(r);
+          if (e != null) return e;
+        }
+      }
+
+      // Sync contas_pagar by tracked period or all
+      if (contasPagarMesInicio != null) {
+        try {
+          final dbList = await SupabaseService.fetchContasPagarPorPeriodo(
+            contasPagarMesInicio!, contasPagarAnoInicio!, contasPagarMesFim, contasPagarAnoFim,
+          );
+          final idsLocais = _contasPagar.map((c) => c.id).toSet();
+          for (final c in dbList) {
+            if (!idsLocais.contains(c.id)) {
+              final e = await SupabaseService.deleteContaPagar(c.id);
+              if (e != null) return e;
+            }
+          }
+        } catch (_) {}
+        for (final c in _contasPagar) {
+          final e = await SupabaseService.upsertContaPagar(c);
           if (e != null) return e;
         }
       }

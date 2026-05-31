@@ -3,11 +3,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/transacao.dart';
 import '../models/grupo.dart';
 import '../models/recebivel.dart';
+import '../models/conta_pagar.dart';
 
 class LocalStorageService {
   static const _transacoesKey = 'local_transacoes';
   static const _gruposKey = 'local_grupos';
   static const _recebiveisKey = 'local_recebiveis';
+  static const _contasPagarKey = 'local_contas_pagar';
 
   // --- Transacoes ---
 
@@ -57,13 +59,30 @@ class LocalStorageService {
     await prefs.setString(_recebiveisKey, json);
   }
 
+  // --- Contas a Pagar ---
+
+  static Future<List<ContaPagar>> carregarContasPagar() async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString(_contasPagarKey);
+    if (json == null) return [];
+    final list = jsonDecode(json) as List;
+    return list.map((e) => ContaPagar.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  static Future<void> salvarContasPagar(List<ContaPagar> contas) async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = jsonEncode(contas.map((c) => c.toJson()).toList());
+    await prefs.setString(_contasPagarKey, json);
+  }
+
   // --- Utils ---
 
   static Future<bool> temDados() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.containsKey(_transacoesKey) ||
         prefs.containsKey(_gruposKey) ||
-        prefs.containsKey(_recebiveisKey);
+        prefs.containsKey(_recebiveisKey) ||
+        prefs.containsKey(_contasPagarKey);
   }
 
   static Future<void> limparTudo() async {
@@ -71,5 +90,6 @@ class LocalStorageService {
     await prefs.remove(_transacoesKey);
     await prefs.remove(_gruposKey);
     await prefs.remove(_recebiveisKey);
+    await prefs.remove(_contasPagarKey);
   }
 }
